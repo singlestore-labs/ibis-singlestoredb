@@ -6,7 +6,6 @@ from pathlib import Path
 import ibis
 from ibis.backends.tests.base import BackendTest
 from ibis.backends.tests.base import RoundHalfToEven
-
 from singlestore.connection import Connection
 
 
