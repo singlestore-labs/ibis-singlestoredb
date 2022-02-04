@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+"""SingleStore expression compiler utilities."""
 from __future__ import annotations
 
 import ibis.expr.datatypes as dt
@@ -9,6 +11,8 @@ from .registry import operation_registry
 
 
 class SingleStoreExprTranslator(AlchemyExprTranslator):
+    """Translate SingleStore expressions to SQLAlchemy."""
+
     _registry = operation_registry
     _rewrites = AlchemyExprTranslator._rewrites.copy()
     _type_map = AlchemyExprTranslator._type_map.copy()
@@ -29,4 +33,6 @@ rewrites = SingleStoreExprTranslator.rewrites
 
 
 class SingleStoreCompiler(AlchemyCompiler):
+    """Compile SingleStore expressions to SQLAlchemy."""
+
     translator_class = SingleStoreExprTranslator

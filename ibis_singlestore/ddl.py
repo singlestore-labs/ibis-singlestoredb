@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # Copyright 2014 Cloudera Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""SingleStore DDL utilities."""
 from __future__ import annotations
 
 import base64
@@ -36,6 +38,24 @@ from .udf import SingleStoreUDF
 
 
 class CreateTableParquet(CreateTable):
+    """
+    Create table from parquet.
+
+    Parameters
+    ----------
+    table_name : str
+        Name of the table to create
+    path : str
+        Path to the parquet file
+    example_file : str, optional
+    example_table : str, optional
+    schema : sch.Schema, optional
+    external : bool, optional
+    **kwargs : keyword arguments, optional
+        Additional arguments to CreateTable
+
+    """
+
     def __init__(
         self,
         table_name: str,
@@ -59,6 +79,7 @@ class CreateTableParquet(CreateTable):
 
     @property
     def _pieces(self) -> Iterator[str]:
+        """Generate SQL for parquet info."""
         if self.example_file is not None:
             yield f"LIKE PARQUET '{self.example_file}'"
         elif self.example_table is not None:
@@ -73,6 +94,24 @@ class CreateTableParquet(CreateTable):
 
 
 class DelimitedFormat:
+    """
+    Create SQL for delimited file.
+
+    Parameters
+    ----------
+    path : str
+        Path to the data file
+    delimiter : str, optional
+        Column delimiter string
+    escapechar : str, optional
+        Escape character string
+    na_rep : str, optional
+        String to use for missing values
+    lineterminator : str, optional
+        String used to indicate the end of a line
+
+    """
+
     def __init__(
         self,
         path: str,
@@ -88,6 +127,7 @@ class DelimitedFormat:
         self.na_rep = na_rep
 
     def to_ddl(self) -> Iterator[str]:
+        """Generate SQL for delimited data file info."""
         yield 'ROW FORMAT DELIMITED'
 
         if self.delimiter is not None:
@@ -107,12 +147,24 @@ class DelimitedFormat:
 
 
 class AvroFormat:
+    """
+    Avro data file info.
+
+    Paramaters
+    ----------
+    path : str
+        Path to Avro file
+    avro_schema : str
+        Schema of Avro file
+
+    """
 
     def __init__(self, path: str, avro_schema: str):
         self.path = path
         self.avro_schema = avro_schema
 
     def to_ddl(self) -> Iterator[str]:
+        """Generate SQL for Avro info."""
         yield 'STORED AS AVRO'
         yield f"LOCATION '{self.path}'"
 
@@ -124,15 +176,50 @@ class AvroFormat:
 
 
 class ParquetFormat:
+    """
+    Parquet data file info.
+
+    Parameters
+    ----------
+    path : str
+        Path to Parquet file
+
+    """
+
     def __init__(self, path: str) -> None:
         self.path = path
 
     def to_ddl(self) -> Iterator[str]:
+        """Generate SQL for Parquet info."""
         yield 'STORED AS PARQUET'
         yield f"LOCATION '{self.path}'"
 
 
 class CreateTableDelimited(CreateTableWithSchema):
+    """
+    Create table from delimited file.
+
+    Parameters
+    ----------
+    table_name : str
+        Name of output table
+    path : str
+        Path to data file
+    schema : sch.Schema
+        Schema of the table
+    delimiter : str, optional
+        String containing column delimiter
+    escapechar : str, optional
+        String containing the escape character
+    lineterminator : str, optional
+        String containing the value indicating the end of a line
+    na_rep : str, optional
+        String used in place of missing values
+    external : bool, optional
+    **kwargs : keyword arguments
+        Additional arguments to the table creator
+
+    """
 
     def __init__(
         self,
@@ -159,6 +246,22 @@ class CreateTableDelimited(CreateTableWithSchema):
 
 
 class CreateTableAvro(CreateTable):
+    """
+    Create table from Avro file.
+
+    Parameters
+    ----------
+    table_name : str
+        Name of output table
+    path : str
+        Path to data file
+    avro_schema : str
+        Schema of Avro content
+    external : bool, optional
+    **kwargs : keyword arguments
+        Additional arguments to the table creator
+
+    """
 
     def __init__(
         self,
@@ -173,12 +276,27 @@ class CreateTableAvro(CreateTable):
 
     @property
     def _pieces(self) -> Iterator[str]:
+        """Generate SQL for table creation."""
         yield '\n'.join(self.table_format.to_ddl())
 
 
 class LoadData(BaseDDL):
     """
-    Generate DDL for LOAD DATA command. Cannot be cancelled
+    Load data from local file.
+
+    Parameters
+    ----------
+    table_name : str
+        Name of the output table
+    path : str
+        Path to the data file
+    database : str, optional
+        Name of the database to load into
+    partition : str, optional
+    partition_schema : str, optional
+    overwrite : bool, optional
+        Overwrite existing table?
+
     """
 
     def __init__(
@@ -200,6 +318,14 @@ class LoadData(BaseDDL):
         self.overwrite = overwrite
 
     def compile(self) -> str:
+        """
+        Generate SQL for loading data.
+
+        Returns
+        -------
+        str
+
+        """
         overwrite = 'OVERWRITE ' if self.overwrite else ''
 
         if self.partition is not None:
@@ -216,6 +342,21 @@ class LoadData(BaseDDL):
 
 
 class PartitionProperties(AlterTable):
+    """
+    Create partition properties.
+
+    Parameters
+    ----------
+    table : str
+        Name of the table
+    partition : str
+    partition_schema : str
+    location : str, optional
+    format : str, optional
+    tbl_properties : dict, optional
+    serde_properties : dict, optional
+
+    """
 
     def __init__(
         self,
@@ -238,6 +379,7 @@ class PartitionProperties(AlterTable):
         self.partition_schema = partition_schema
 
     def _compile(self, cmd: str, property_prefix: str = '') -> str:
+        """Generate SQL for partition properties."""
         part = format_partition(self.partition, self.partition_schema)
         if cmd:
             part = f'{cmd} {part}'
@@ -248,6 +390,18 @@ class PartitionProperties(AlterTable):
 
 
 class AddPartition(PartitionProperties):
+    """
+    Add partition properties.
+
+    Parameters
+    ----------
+    table : str
+        Name of the table
+    partition : str
+    partition_shcema : str
+    location : str, optional
+
+    """
 
     def __init__(
         self,
@@ -259,25 +413,42 @@ class AddPartition(PartitionProperties):
         super().__init__(table, partition, partition_schema, location=location)
 
     def compile(self) -> str:
+        """Generate SQL for adding partition properties."""
         return self._compile('ADD')
 
 
 class AlterPartition(PartitionProperties):
+    """Alter partition properties."""
 
     def compile(self) -> str:
+        """Generate SQL for altering partition properties."""
         return self._compile('', 'SET ')
 
 
 class DropPartition(PartitionProperties):
+    """Drop partition."""
 
     def __init__(self, table: str, partition: str, partition_schema: str):
         super().__init__(table, partition, partition_schema)
 
     def compile(self) -> str:
+        """Generate SQL for dropping partition."""
         return self._compile('DROP')
 
 
 class CacheTable(BaseDDL):
+    """
+    Set table caching properties.
+
+    Parameters
+    ----------
+    table_name : str
+        Name of the table
+    database : str, optional
+        Name of the database the table is in
+    pool : str, optional
+
+    """
 
     def __init__(
         self,
@@ -290,6 +461,7 @@ class CacheTable(BaseDDL):
         self.pool = pool
 
     def compile(self) -> str:
+        """Generate SQL for table cache."""
         scoped_name = self._get_scoped_name(self.table_name, self.database)
         return "ALTER TABLE {} SET CACHED IN '{}'".format(
             scoped_name, self.pool,
@@ -297,6 +469,19 @@ class CacheTable(BaseDDL):
 
 
 class CreateFunction(BaseDDL):
+    """
+    Create a function.
+
+    Parameters
+    ----------
+    func : SingleStoreUDF or SingleStoreUDA
+        Function to create in the database
+    name : str, optional
+        Name to assign the function
+    database : str, optional
+        Name of the database to create the function in
+
+    """
 
     _object_type = 'FUNCTION'
 
@@ -311,6 +496,7 @@ class CreateFunction(BaseDDL):
         self.database = database
 
     def _singlestore_signature(self) -> str:
+        """Generate SQL for function."""
         scoped_name = self._get_scoped_name(self.func.symbol, self.database)
         input_sig = _singlestore_input_signature(self.func.inputs)
         output_sig = type_to_sql_string(self.func.output)
@@ -319,8 +505,10 @@ class CreateFunction(BaseDDL):
 
 
 class CreateUDF(CreateFunction):
+    """Create a UDF."""
 
     def compile(self) -> str:
+        """Generate SQL for function."""
         create_decl = 'CREATE OR REPLACE FUNCTION'
         singlestore_sig = self._singlestore_signature()
 
@@ -343,8 +531,10 @@ class CreateUDF(CreateFunction):
 
 
 class CreateUDA(CreateFunction):
+    """Create a UDA."""
 
     def compile(self) -> str:
+        """Generate SQL for function."""
         create_decl = 'CREATE OR REPLACE AGGREGATE FUNCTION'
         singlestore_sig = self._singlestore_signature()
         tokens = [f"AS INFILE '{self.func.library!r}'"]
@@ -366,14 +556,29 @@ class CreateUDA(CreateFunction):
 
 
 class DropFunction(DDLDropFunction):
+    """Drop a function."""
 
     def _singlestore_signature(self) -> str:
+        """Generate SQL for dropping a function."""
         full_name = self._get_scoped_name(self.name, self.database)
         input_sig = _singlestore_input_signature(self.inputs)
         return f'{full_name}({input_sig})'
 
 
 class ListFunction(BaseDDL):
+    """
+    List functions.
+
+    Parameters
+    ----------
+    database : str
+        Name of the database
+    like : str, optional
+        Pattern of function names
+    aggregate : bool, optional
+        Show only aggregate functions?
+
+    """
 
     def __init__(
         self,
@@ -386,6 +591,7 @@ class ListFunction(BaseDDL):
         self.aggregate = aggregate
 
     def compile(self) -> str:
+        """Generate SQL for listing functions."""
         statement = 'SHOW '
         if self.aggregate:
             statement += 'AGGREGATE '
@@ -396,6 +602,19 @@ class ListFunction(BaseDDL):
 
 
 def _singlestore_input_signature(inputs: Sequence[str]) -> str:
+    """
+    Generate SQL for function signature.
+
+    Parameters
+    ----------
+    inputs : Sequence[str]
+        Data types of input parameters
+
+    Returns
+    -------
+    str
+
+    """
     # TODO: varargs '{}...'.format(val)
     return ', '.join([
         '{} {} NOT NULL'.format(

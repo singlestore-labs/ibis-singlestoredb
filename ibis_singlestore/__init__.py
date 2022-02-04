@@ -1,4 +1,15 @@
 #!/usr/bin/env python
+"""
+Ibis backend for SingleStore.
+
+Examples
+--------
+>>> import ibis
+>>> conn = ibis.singlestore.connect('user:password@localhost:3306/mydb')
+>>> mytbl = conn.table('mytbl')
+>>> mytbl[mytbl.name.like('Smith')].execute()
+
+"""
 from __future__ import annotations
 
 import contextlib
@@ -9,9 +20,10 @@ from typing import Callable
 from typing import Iterator
 from typing import Optional
 from typing import Sequence
+from typing import Union
 
 import ibis.expr.datatypes as dt
-import ibis.expr.schema as sc
+import ibis.expr.schema as sch
 import ibis.expr.types as ir
 import sqlalchemy
 import sqlalchemy.dialects.mysql as singlestore
@@ -21,6 +33,7 @@ from ibis.expr.types import AnyColumn
 
 from . import ddl
 from .compiler import SingleStoreCompiler
+from .udf import SingleStoreUDA
 from .udf import SingleStoreUDF
 from .udf import wrap_udf
 
@@ -35,7 +48,32 @@ def apply(
     result_type: Optional[object] = None,
     args: Optional[tuple[Any, ...]] = None,
     **kwargs: Any,
-) -> Any:
+) -> ir.Expr:
+    """
+    Apply a database function to a table column.
+
+    Parameters
+    ----------
+    self : AnyColumn
+        Table column to apply the function to
+    func : SingleStoreUDF
+        Function to apply
+    axis : int, optional
+        Not supported
+    raw : bool, optional
+        Not supported
+    result_type : type, optional
+        Result type of function
+    args : tuple, optional
+        Additional arguments to function
+    **kwargs : keyword-arguments, optional
+        Additional keyword arguments to function
+
+    Returns
+    -------
+    ir.Expr : value expression
+
+    """
     args = args or tuple()
     # name = func.__name__
     func = self.op().table.op().source.create_function(func)
@@ -47,7 +85,19 @@ def apply(
 AnyColumn.apply = apply
 
 
-class FuncDict(dict[str, Callable[..., Any]]):
+class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
+    """
+    Accessor for holding UDFs and UDAs.
+
+    This object is not instantiated directly. It is accessed through
+    the `funcs` attribute of the backend object.
+
+    Parameters
+    ----------
+    con : Backend
+        Backend object associated with the functions
+
+    """
 
     _con: Backend
     _database_name: str
@@ -59,17 +109,51 @@ class FuncDict(dict[str, Callable[..., Any]]):
         self._refresh()
 
     def __call__(self, refresh: bool = False) -> FuncDict:
+        """
+        Apply operations to the function dictionary.
+
+        Parameters
+        ----------
+        refresh : bool, optional
+            Refresh the list of available functions?
+
+        Returns
+        -------
+        self
+
+        """
         if refresh:
             self._refresh()
         return self
 
     def _refresh(self) -> None:
+        """
+        Update functions in the dictionary.
+
+        Returns
+        -------
+        None
+
+        """
         self.clear()
         db = quote_identifier(self._database_name)
         for item in self._con.raw_sql(f'show functions in {db}').fetchall():
             self[item[0]] = self._make_func(item[0])
 
     def _has_function(self, name: str) -> bool:
+        """
+        Indicate whether the function exists in the database or not.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function in question
+
+        Returns
+        -------
+        bool
+
+        """
         db = quote_identifier(self._database_name)
         # qname = quote_identifier(item[0])
         funcs = self._con.raw_sql(f'show functions in {db} like {name}').fetchall()
@@ -81,7 +165,20 @@ class FuncDict(dict[str, Callable[..., Any]]):
             'More than one function matches name: {}'.format(', '.join(funcs)),
         )
 
-    def _make_func(self, name: str) -> Callable[..., Any]:
+    def _make_func(self, name: str) -> Union[SingleStoreUDF, SingleStoreUDA]:
+        """
+        Create a Python wrapper for the requested UDF / UDA.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+
+        Returns
+        -------
+        SingleStoreUDF | SingleStoreUDA
+
+        """
         db = quote_identifier(self._database_name)
         qname = quote_identifier(name)
         proto = self._con.raw_sql(f'show create function {db}.{qname}').fetchall()[0][2]
@@ -146,10 +243,35 @@ class FuncDict(dict[str, Callable[..., Any]]):
         name: str,
         ftype: str,
         inputs: Sequence[tuple[str, str, bool]],
-        output: Any,
+        output: Optional[tuple[str, bool]],
         code: str,
         format: str,
     ) -> str:
+        """
+        Construct the docstring using the function information.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+        ftype : str
+            Type of the function in the database
+        inputs : Sequence[tuple[str, str, bool]]
+            Sequence of (name, type, is_nullable) elements describing
+            the inputs of the function
+        output : tuple[str, bool], optional
+            Tuple of the form (type, is_nullable) for the return value
+            of the function
+        code : str
+            Code of the UDF / UDA
+        format : str
+            UDF / UDA output format
+
+        Returns
+        -------
+        str
+
+        """
         doc = [f'Call `{name}` {ftype} function', '']
         if ftype == 'remote service':
             doc.append(f'Accesses remote service at {code} using {format} format.')
@@ -170,7 +292,20 @@ class FuncDict(dict[str, Callable[..., Any]]):
         doc.append('')
         return '\n'.join(doc)
 
-    def __getattr__(self, name: str) -> Callable[..., Any]:
+    def __getattr__(self, name: str) -> Union[SingleStoreUDF, SingleStoreUDA]:
+        """
+        Retrieve the specified attribute.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+
+        Returns
+        -------
+        SingleStoreUDF | SingleStoreUDA
+
+        """
         try:
             return self[name]
         except KeyError:
@@ -180,7 +315,20 @@ class FuncDict(dict[str, Callable[..., Any]]):
                 return func
             raise AttributeError(f"'dict' object has no attribute '{name}'")
 
-    def __getitem__(self, name: str) -> Callable[..., Any]:
+    def __getitem__(self, name: str) -> Union[SingleStoreUDF, SingleStoreUDA]:
+        """
+        Retrieve the specified key.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+
+        Returns
+        -------
+        SingleStoreUDF | SingleStoreUDA
+
+        """
         try:
             return dict.__getitem__(self, name)
         except KeyError:
@@ -190,10 +338,42 @@ class FuncDict(dict[str, Callable[..., Any]]):
                 return func
             raise
 
-    def __setattr__(self, name: str, value: Callable[..., Any]) -> None:
+    def __setattr__(
+        self,
+        name: str,
+        value: Union[SingleStoreUDF, SingleStoreUDA],
+    ) -> None:
+        """
+        Set a function in the dictionary.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+        value : SingleStoreUDF or SingleStoreUDA
+            Function value
+
+        Returns
+        -------
+        None
+
+        """
         self[name] = value
 
     def __delattr__(self, name: str) -> None:
+        """
+        Remove an entry from the dictionary.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+
+        Returns
+        -------
+        None
+
+        """
         try:
             del self[name]
         except KeyError:
@@ -201,23 +381,63 @@ class FuncDict(dict[str, Callable[..., Any]]):
 
 
 class TableAccessor(object):
+    """
+    Accessor for database table objects.
+
+    Parameters
+    ----------
+    backend : Backend
+        The backend to use for table lookups
+
+    """
 
     def __init__(self, backend: Backend):
         self._backend = backend
 
     def __getattr__(self, name: str) -> ir.TableExpr:
+        """
+        Retrieve the given table.
+
+        Parameters
+        ----------
+        name : str
+            Name of the table
+
+        Returns
+        -------
+        ir.TableExpr
+
+        """
         return self._backend._table(name)
 
     def __call__(
         self,
         name: str,
         database: Optional[str] = None,
-        schema: Optional[sc.Schema] = None,
+        schema: Optional[sch.Schema] = None,
     ) -> ir.TableExpr:
+        """
+        Retrieve the requested table object.
+
+        Parameters
+        ----------
+        name : str
+            Name of the table
+        database : str, optional
+            Database for the table
+        schema : sch.Schema, optional
+            Schema of the table
+
+        Returns
+        -------
+        ir.TableExpr
+
+        """
         return self._backend._table(name, database=database, schema=schema)
 
 
 class Backend(BaseAlchemyBackend):
+    """Ibis backend for SingleStore."""
 
     name = 'singlestore'
     compiler = SingleStoreCompiler
@@ -232,20 +452,25 @@ class Backend(BaseAlchemyBackend):
         database: Optional[str] = None,
         driver: Optional[str] = 'mysqlconnector',
     ) -> None:
-        """Create an Ibis client located at `user`:`password`@`host`:`port`
-        connected to a SingleStore database named `database`.
+        """
+        Connect to a SingleStore database.
 
         Parameters
         ----------
-        host : string, default 'localhost'
-        user : string, default None
-        password : string, default None
-        port : string or integer, default 3306
-        database : string, default None
-        url : string, default None
-            Complete SQLAlchemy connection string. If passed, the other
-            connection arguments are ignored.
-        driver : string, default 'mysqlconnector'
+        url : str, optional
+            Full URL of the database connection in SQLAlchemy form
+        host : str, optional
+            Name or IP address of the database host
+        user : str, optional
+            User name for the database connection
+        password : str, optional
+            Password for the database connection
+        port : int, optional
+            Port number of the database server
+        database : str, optional
+            Name of the database to connect to
+        driver : str, optional
+            Name of the SingleStore database connection driver
 
         Examples
         --------
@@ -308,6 +533,14 @@ class Backend(BaseAlchemyBackend):
 
     @contextlib.contextmanager
     def begin(self) -> Iterator[Any]:
+        """
+        Begin a transaction context.
+
+        Returns
+        -------
+        Iterator[Any]
+
+        """
         with super().begin() as bind:
             previous_timezone = bind.execute(
                 'SELECT @@session.time_zone',
@@ -327,26 +560,26 @@ class Backend(BaseAlchemyBackend):
         self,
         name: str,
         database: Optional[str] = None,
-        schema: Optional[sc.Schema] = None,
+        schema: Optional[sch.Schema] = None,
     ) -> ir.TableExpr:
-        """Create a table expression that references a particular a table
-        called `name` in a SingleStore database called `database`.
+        """
+        Return a database table object.
 
         Parameters
         ----------
         name : str
-            The name of the table to retrieve.
+            Name of the table to retrieve
         database : str, optional
-            The database in which the table referred to by `name` resides. If
+            Database in which the table referred to by `name` resides. If
             ``None`` then the ``current_database`` is used.
         schema : str, optional
-            The schema in which the table resides.  If ``None`` then the
+            Schema in which the table resides.  If ``None`` then the
             `public` schema is assumed.
 
         Returns
         -------
-        table : TableExpr
-            A table expression.
+        ir.TableExpr
+
         """
         if database is not None and database != self.current_database:
             return self.database(name=database).table(name=name, schema=schema)
@@ -359,9 +592,9 @@ class Backend(BaseAlchemyBackend):
         self,
         func: Callable[..., Any],
         database: Optional[str] = None,
-    ) -> SingleStoreUDF:
+    ) -> Union[SingleStoreUDF, SingleStoreUDA]:
         """
-        Create a function within SingleStore from Python source
+        Create a function within SingleStore from Python source.
 
         Parameters
         ----------
@@ -373,7 +606,7 @@ class Backend(BaseAlchemyBackend):
 
         Returns
         -------
-        SingleStoreUDF
+        SingleStoreUDF | SingleStoreUDA
 
         """
         import inspect
@@ -415,19 +648,79 @@ class Backend(BaseAlchemyBackend):
 
 @dt.dtype.register((singlestore.DOUBLE, singlestore.REAL))
 def singlestore_double(satype: Any, nullable: bool = True) -> dt.DataType:
+    """
+    Register a double data type.
+
+    Parameters
+    ----------
+    satype : Any
+        SQLAlchemy data type
+    nullable : bool, optional
+        Is the column nullable?
+
+    Returns
+    -------
+    dt.DataType
+
+    """
     return dt.Double(nullable=nullable)
 
 
 @dt.dtype.register(singlestore.FLOAT)
 def singlestore_float(satype: Any, nullable: bool = True) -> dt.DataType:
+    """
+    Register a float data type.
+
+    Parameters
+    ----------
+    satype : Any
+        SQLAlchemy data type
+    nullable : bool, optional
+        Is the column nullable?
+
+    Returns
+    -------
+    dt.DataType
+
+    """
     return dt.Float(nullable=nullable)
 
 
 @dt.dtype.register(singlestore.TINYINT)
 def singlestore_tinyint(satype: Any, nullable: bool = True) -> dt.DataType:
+    """
+    Register a tiny int data type.
+
+    Parameters
+    ----------
+    satype : Any
+        SQLAlchemy data type
+    nullable : bool, optional
+        Is the column nullable?
+
+    Returns
+    -------
+    dt.DataType
+
+    """
     return dt.Int8(nullable=nullable)
 
 
-@dt.dtype.register(singlestore.BLOB)
+@ dt.dtype.register(singlestore.BLOB)
 def singlestore_blob(satype: Any, nullable: bool = True) -> dt.DataType:
+    """
+    Register a blob data type.
+
+    Parameters
+    ----------
+    satype : Any
+        SQLAlchemy data type
+    nullable : bool, optional
+        Is the column nullable?
+
+    Returns
+    -------
+    dt.DataType
+
+    """
     return dt.Binary(nullable=nullable)

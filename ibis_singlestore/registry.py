@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""SingleStore function registry."""
 from __future__ import annotations
 
 from typing import Callable

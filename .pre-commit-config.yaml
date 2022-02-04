@@ -40,3 +40,8 @@ repos:
     hooks:
     -   id: mypy
         additional_dependencies: [types-all]
+-   repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.1.1
+    hooks:
+    -   id: pydocstyle
+        args: [--convention=numpy]

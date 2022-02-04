@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+"""SingleStore connection tests."""
 from __future__ import annotations
 
 import os
@@ -10,6 +12,16 @@ from singlestore.connection import Connection
 
 
 class TestConf(BackendTest, RoundHalfToEven):
+    """
+    SingleStore connection tests.
+
+    Parameters
+    ----------
+    data_directory : Path
+        Path to input data
+
+    """
+
     # singlestore has the same rounding behavior as postgres
     check_dtype = False
     supports_window_operations = False
@@ -31,6 +43,19 @@ class TestConf(BackendTest, RoundHalfToEven):
 
     @staticmethod
     def connect(data_directory: Path) -> Connection:
+        """
+        Connect to SingleStore database.
+
+        Parameters
+        ----------
+        data_directory : Path
+            Path to input data
+
+        Returns
+        -------
+        Connection
+
+        """
         user = os.environ.get('IBIS_TEST_SINGLESTORE_USER', 'ibis')
         password = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD', 'ibis')
         host = os.environ.get('IBIS_TEST_SINGLESTORE_HOST', 'localhost')
