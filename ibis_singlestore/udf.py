@@ -18,6 +18,7 @@ import abc
 import os
 import re
 from typing import Any
+from typing import Dict
 from typing import Optional
 from typing import Sequence
 from typing import Union
@@ -627,7 +628,7 @@ def _ibis_string_to_singlestore(tval: str) -> Optional[str]:
     return None
 
 
-_singlestore_to_ibis_type: dict[str, str] = {
+_singlestore_to_ibis_type: Dict[str, str] = {
     'boolean': 'boolean',
     'tinyint': 'int8',
     'smallint': 'int16',

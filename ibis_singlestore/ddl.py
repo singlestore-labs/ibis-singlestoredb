@@ -19,6 +19,7 @@ import base64
 import json
 import string
 from typing import Any
+from typing import Dict
 from typing import Iterator
 from typing import Optional
 from typing import Sequence
@@ -35,6 +36,27 @@ from ibis.backends.base.sql.ddl import format_tblproperties
 from ibis.backends.base.sql.registry import type_to_sql_string
 
 from .udf import SingleStoreUDF
+
+
+def a2u(value: Any, encoding: str = 'utf-8') -> str:
+    """
+    Ensure value is a str.
+
+    Parameters
+    ----------
+    value : Any
+        Value to convert to str
+    encoding : str, optional
+        Encoding if `value` is bytes
+
+    Returns
+    -------
+    str
+
+    """
+    if isinstance(value, bytes):
+        return str(value, encoding)
+    return str(value)
 
 
 class CreateTableParquet(CreateTable):
@@ -365,8 +387,8 @@ class PartitionProperties(AlterTable):
         partition_schema: str,
         location: Optional[str] = None,
         format: Optional[str] = None,
-        tbl_properties: Optional[dict[str, Any]] = None,
-        serde_properties: Optional[dict[str, Any]] = None,
+        tbl_properties: Optional[Dict[str, Any]] = None,
+        serde_properties: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(
             table,
@@ -517,10 +539,10 @@ class CreateUDF(CreateFunction):
         elif self.func.language == self.func.LANGUAGE_PYTHON:
             param_line = 'AS PYTHON'
         else:
-            raise ValueError(f"Unsupported function language: {self.func.library!r}'")
+            raise ValueError(f"Unsupported function language: {a2u(self.func.library)}'")
 
         if self.func.type == self.func.TYPE_FILE:
-            param_line += f" INFILE '{self.func.library!r}'"
+            param_line += f" INFILE '{a2u(self.func.library)}'"
         elif self.func.type == self.func.TYPE_MODULE:
             library = bytes('{!r}'.format(self.func.library or ''), 'utf-8')
             param_line += " '{}'".format(base64.b64encode(library).decode('utf-8'))
@@ -537,7 +559,7 @@ class CreateUDA(CreateFunction):
         """Generate SQL for function."""
         create_decl = 'CREATE OR REPLACE AGGREGATE FUNCTION'
         singlestore_sig = self._singlestore_signature()
-        tokens = [f"AS INFILE '{self.func.library!r}'"]
+        tokens = [f"AS INFILE '{a2u(self.func.library)}'"]
 
         fn_names = (
             'init_fn',
@@ -550,7 +572,7 @@ class CreateUDA(CreateFunction):
         for fn in fn_names:
             value = getattr(self.func, fn)
             if value is not None:
-                tokens.append(f"{fn}='{value}'")
+                tokens.append(f'{fn}="{value}"')
 
         return ' '.join([create_decl, singlestore_sig]) + ' ' + '\n'.join(tokens)
 

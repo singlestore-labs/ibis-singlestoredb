@@ -17,9 +17,11 @@ import re
 import warnings
 from typing import Any
 from typing import Callable
+from typing import Dict
 from typing import Iterator
 from typing import Optional
 from typing import Sequence
+from typing import Tuple
 from typing import Union
 
 import ibis.expr.datatypes as dt
@@ -46,7 +48,7 @@ def apply(
     axis: int = 0,
     raw: bool = False,
     result_type: Optional[object] = None,
-    args: Optional[tuple[Any, ...]] = None,
+    args: Optional[Tuple[Any, ...]] = None,
     **kwargs: Any,
 ) -> ir.Expr:
     """
@@ -85,7 +87,71 @@ def apply(
 AnyColumn.apply = apply
 
 
-class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
+class FuncParam(object):
+    """
+    Function argument definition.
+
+    Parameters
+    ----------
+    name : str
+        Name of the argument
+    dtype : str
+        Data type of the argument
+    default : Any, optional
+        Default value
+    is_nullable : bool, optional
+        Can the value be NULL?
+    collate : str, optional
+        Collation order
+
+    """
+
+    def __init__(
+        self,
+        name: str,
+        dtype: str,
+        default: Any = None,
+        is_nullable: bool = False,
+        collate: Optional[str] = None,
+    ):
+        self.name = name
+        self.dtype = dtype
+        self.default = default
+        self.is_nullable = is_nullable
+        self.collate = collate
+
+
+class FuncReturns(object):
+    """
+    Function output definition.
+
+    Parameters
+    ----------
+    dtype : str
+        Output data type
+    is_nullable : bool, optional
+        Can the value be NULL?
+    collate : str, optional
+        Collation order
+
+    """
+
+    def __init__(
+        self,
+        dtype: str,
+        is_nullable: bool = False,
+        collate: Optional[str] = None,
+    ):
+        self.dtype = dtype
+        self.is_nullable = is_nullable
+        self.collate = collate
+
+
+param = FuncParam
+ret = FuncReturns
+
+
+class FuncDict(Dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
     """
     Accessor for holding UDFs and UDAs.
 
@@ -102,11 +168,37 @@ class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
     _con: Backend
     _database_name: str
 
+    _db2py_type: Dict[str, str] = {
+        'int64': 'int',
+        'bigint': 'int',
+        'string': 'str',
+        'varchar': 'str',
+        'text': 'str',
+    }
+
     def __init__(self, con: Backend):
         super(dict, self).__init__()
         self.__dict__['_con'] = con
         self.__dict__['_database_name'] = con.database_name
         self._refresh()
+
+    def _get_py_type(self, typ: Optional[str]) -> str:
+        """
+        Return the Python type for a given database type.
+
+        Parameters
+        ----------
+        typ : str
+            Name of the database type
+
+        Returns
+        -------
+        str
+
+        """
+        if typ is None:
+            return 'None'
+        return type(self)._db2py_type.get(typ, typ)
 
     def __call__(self, refresh: bool = False) -> FuncDict:
         """
@@ -229,21 +321,91 @@ class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
                 raise ValueError(f'Could not extract nullable information from: {output}')
             output = dict(bigint='int64', text='string')[m.group(1)]
 
-        func = SingleStoreUDF(inputs, output, name)
-        func.__doc__ = self._make_func_doc(
-            name, ftype.lower(),
-            list(zip(input_names, inputs, nullable)),
-            (output, out_nullable), code, format,
+        func_type = type(
+            f'UDF_{name}', (SingleStoreUDF,),
+            {
+                '__doc__': f'{name} function.',
+                '__call__': self._make___call__(
+                    name, ftype.lower(),
+                    list(
+                        zip(input_names, inputs, nullable),
+                    ),
+                    (output, out_nullable), code, format,
+                ),
+            },
         )
+        func = func_type(inputs, output, name)
         func.register(name, self._database_name)
         return func
+
+    def _make___call__(
+        self,
+        name: str,
+        ftype: str,
+        inputs: Sequence[Tuple[str, str, bool]],
+        output: Optional[Tuple[str, bool]],
+        code: str,
+        format: str,
+    ) -> str:
+        """
+        Create __call__ method of function.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+        ftype : str
+            Type of the function in the database
+        inputs : Sequence[Tuple[str, str, bool]]
+            Sequence of (name, type, is_nullable) elements describing
+            the inputs of the function
+        output : Tuple[str, bool], optional
+            Tuple of the form (type, is_nullable) for the return value
+            of the function
+        code : str
+            Code of the UDF / UDA
+        format : str
+            UDF / UDA output format
+
+        Returns
+        -------
+        function
+
+        """
+        def annotate(typ: Optional[str], nullable: bool) -> str:
+            """Generate type annotation."""
+            if typ is None:
+                return 'None'
+            typ = self._get_py_type(typ)
+            if nullable:
+                return f'Optional[{typ}]'
+            return typ
+
+        names = [x[0] for x in inputs]
+        types = [annotate(x[1], x[2]) for x in inputs]
+        sig = ', '.join([f'{x}: {y}' for x, y in zip(names, types)])
+        args = ', '.join(names)
+        ret = annotate(*(output or [None, True]))
+
+        new_func = f'def __call__(self, {sig}) -> {ret}:\n' + \
+                   f'    return SingleStoreUDF.__call__(self, {args})'
+        new_func_code = compile(new_func, '<string>', 'exec')
+
+        loc: Dict[str, Any] = {}
+        exec(new_func_code, globals(), loc)
+
+        __call__ = loc['__call__']
+        __call__.__doc__ = self._make_func_doc(
+            name, ftype, inputs, output, code, format,
+        )
+        return __call__
 
     def _make_func_doc(
         self,
         name: str,
         ftype: str,
-        inputs: Sequence[tuple[str, str, bool]],
-        output: Optional[tuple[str, bool]],
+        inputs: Sequence[Tuple[str, str, bool]],
+        output: Optional[Tuple[str, bool]],
         code: str,
         format: str,
     ) -> str:
@@ -256,10 +418,10 @@ class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
             Name of the function
         ftype : str
             Type of the function in the database
-        inputs : Sequence[tuple[str, str, bool]]
+        inputs : Sequence[Tuple[str, str, bool]]
             Sequence of (name, type, is_nullable) elements describing
             the inputs of the function
-        output : tuple[str, bool], optional
+        output : Tuple[str, bool], optional
             Tuple of the form (type, is_nullable) for the return value
             of the function
         code : str
@@ -272,12 +434,13 @@ class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
         str
 
         """
-        doc = [f'Call `{name}` {ftype} function', '']
+        doc = [f'Call `{name}` {ftype} function.', '']
         if ftype == 'remote service':
             doc.append(f'Accesses remote service at {code} using {format} format.')
             doc.append('')
         doc.extend(['Parameters', '----------'])
         for name, dtype, nullable in inputs:
+            dtype = self._get_py_type(dtype)
             arg = f'{name} : {dtype}'
             if nullable:
                 arg += ' or None'
@@ -285,7 +448,7 @@ class FuncDict(dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
         if output and output[0]:
             doc.append('')
             doc.extend(['Returns', '-------'])
-            ret = f'{output[0]}'
+            ret = '{}'.format(self._get_py_type(output[0]))
             if output[1]:
                 ret += ' or None'
             doc.append(ret)
@@ -442,6 +605,45 @@ class Backend(BaseAlchemyBackend):
     name = 'singlestore'
     compiler = SingleStoreCompiler
 
+    _funcs: FuncDict
+    _database_name: Optional[str] = None
+
+    @property
+    def database_name(self) -> Optional[str]:
+        """Get the currently selected database."""
+        return self._database_name
+
+    @database_name.setter
+    def database_name(self, value: Optional[str]) -> None:
+        """Set the default database name."""
+        # TODO: unset database
+        if value is None:
+            return
+
+        # TODO: escape value
+        value = str(value)
+        if self._database_name != value and hasattr(self, 'con'):
+            self.raw_sql(f'use {value}')
+
+        self._database_name = value
+
+    def create_database(self, name: str, force: bool = False) -> None:
+        """
+        Create a new database.
+
+        Parameters
+        ----------
+        name : str
+            Name for the new database
+        force : bool, optional
+            If `True`, an exception is raised if the database already exists.
+
+        """
+        if force and name.lower() in [x.lower() for x in self.list_databases()]:
+            raise ValueError(f'Database with the name "{name}" already exists.')
+        # TODO: escape name
+        self.raw_sql(f'CREATE DATABASE IF NOT EXISTS {name}')
+
     def do_connect(
         self,
         url: Optional[str] = None,
@@ -450,7 +652,7 @@ class Backend(BaseAlchemyBackend):
         password: Optional[str] = None,
         port: Optional[int] = 3306,
         database: Optional[str] = None,
-        driver: Optional[str] = 'mysqlconnector',
+        driver: Optional[str] = None,
     ) -> None:
         """
         Connect to a SingleStore database.
@@ -514,10 +716,20 @@ class Backend(BaseAlchemyBackend):
             year : int32
             month : int32
         """
-        if url and '//' not in url:
-            url = f'singlestore+{driver}://{url}'
-        if url and 'singlestore+' not in url:
-            url = f'singlestore+{url}'
+        if url:
+            if '//' not in url:
+                if driver:
+                    url = f'singlestore+{driver}://{url}'
+                else:
+                    url = f'singlestore://{url}'
+            elif not url.startswith('singlestore'):
+                url = f'singlestore+{url}'
+            driver = None
+        elif driver:
+            if not driver.startswith('singlestore'):
+                driver = f'singlestore+{driver}'
+        else:
+            driver = 'singlestore'
         alchemy_url = self._build_alchemy_url(
             url=url,
             host=host,
@@ -525,11 +737,18 @@ class Backend(BaseAlchemyBackend):
             user=user,
             password=password,
             database=database,
-            driver=f'singlestore+{driver}',
+            driver=driver,
         )
 
         self.database_name = alchemy_url.database
         super().do_connect(sqlalchemy.create_engine(alchemy_url))
+
+    @property
+    def funcs(self) -> FuncDict:
+        """Return function dictionary."""
+        if not hasattr(self, '_funcs'):
+            self._funcs = FuncDict(self)
+        return self._funcs
 
     @contextlib.contextmanager
     def begin(self) -> Iterator[Any]:
@@ -587,6 +806,89 @@ class Backend(BaseAlchemyBackend):
             alch_table = self._get_sqla_table(name, schema=schema)
             node = self.table_class(alch_table, self, self._schemas.get(name))
             return self.table_expr_class(node)
+
+    def create_external_function(
+        self,
+        name: str,
+        args: Tuple[FuncParam, ...],
+        returns: Union[str, FuncReturns],
+        remote_service: str,
+        format: str = 'json',
+        link: Optional[str] = None,
+        if_exists: str = 'error',
+        database: Optional[str] = None,
+    ) -> Union[SingleStoreUDF, SingleStoreUDA]:
+        """
+        Create an external function.
+
+        Parameters
+        ----------
+        name : str
+            Name of the function
+        args : Tuple[FuncArg]
+            Tuple of function arguments
+        returns : str or FuncReturns
+            Output data type
+        remote_service : str
+            URL of the remote service
+        format : str, optional
+            Output data format: 'json' or 'rowdat_1'
+        link : str, optional
+            Link that stores connection details
+        if_exists : str, optional
+            Action to perform if the function already exists
+        database : str, optional
+            Name of database to insert the function into
+
+        Returns
+        -------
+        SingleStoreUDF or SingleStoreUDA
+
+        """
+        orig_name = name
+
+        # TODO: escape literals
+        sql = ['CREATE']
+        if if_exists == 'replace':
+            sql.append('OR REPLACE')
+        sql.append('EXTERNAL FUNCTION')
+
+        if database:
+            name = f'{database}.{name}'
+            link = link and f'{database}.{link}' or None
+
+        sql.append(name)
+
+        sql.append('(')
+        if args:
+            sig = []
+            for item in args:
+                arg = f'{item.name} {item.dtype}'
+                if item.default:
+                    arg += ' DEFAULT {item.default}'
+                arg += item.is_nullable and ' NULL' or ' NOT NULL'
+                if item.collate:
+                    arg += f' {item.collate}'
+                sig.append(arg)
+            sql.append(', '.join(sig))
+        sql.append(')')
+
+        if isinstance(returns, str):
+            returns = FuncReturns(returns)
+
+        sql.append(f'RETURNS {returns.dtype}')
+        sql.append(returns.is_nullable and 'NULL' or 'NOT NULL')
+        sql.append(f'AS REMOTE SERVICE "{remote_service}"')
+        sql.append(f'FORMAT {format}')
+
+        if link:
+            sql.append(f'LINK {link}')
+
+        self.raw_sql(' '.join(sql))
+
+        self.funcs(refresh=True)
+
+        return getattr(self.funcs, orig_name)
 
     def create_function(
         self,
