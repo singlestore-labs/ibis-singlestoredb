@@ -310,7 +310,12 @@ class FuncDict(Dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
             for x in sig.split(',')
         ]
 
-        inputs = [dict(bigint='int64', text='string')[x] for x in inputs]
+        inputs = [
+            dict(
+                bigint='int64', text='string', varchar='string',
+                double='double',
+            )[x] for x in inputs
+        ]
 
         out_nullable = False
         output = ret
@@ -319,7 +324,10 @@ class FuncDict(Dict[str, Union[SingleStoreUDF, SingleStoreUDA]]):
             m = re.match(r'^\s*(\w+)', output)
             if m is None:
                 raise ValueError(f'Could not extract nullable information from: {output}')
-            output = dict(bigint='int64', text='string')[m.group(1)]
+            output = dict(
+                bigint='int64', text='string',
+                varchar='string', double='double',
+            )[m.group(1)]
 
         func_type = type(
             f'UDF_{name}', (SingleStoreUDF,),
@@ -653,6 +661,7 @@ class Backend(BaseAlchemyBackend):
         port: Optional[int] = 3306,
         database: Optional[str] = None,
         driver: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """
         Connect to a SingleStore database.
@@ -739,6 +748,7 @@ class Backend(BaseAlchemyBackend):
             database=database,
             driver=driver,
         )
+        alchemy_url.set(query={k.lower(): str(v) for k, v in kwargs.items()})
 
         self.database_name = alchemy_url.database
         super().do_connect(sqlalchemy.create_engine(alchemy_url))
