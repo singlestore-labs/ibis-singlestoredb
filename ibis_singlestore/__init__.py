@@ -32,6 +32,7 @@ import sqlalchemy.dialects.mysql as singlestore
 from ibis.backends.base.sql.alchemy import BaseAlchemyBackend
 from ibis.backends.base.sql.registry.helpers import quote_identifier
 from ibis.expr.types import AnyColumn
+from singlestore.connection import build_params
 
 from . import ddl
 from .compiler import SingleStoreCompiler
@@ -652,105 +653,31 @@ class Backend(BaseAlchemyBackend):
         # TODO: escape name
         self.raw_sql(f'CREATE DATABASE IF NOT EXISTS {name}')
 
-    def do_connect(
-        self,
-        url: Optional[str] = None,
-        host: Optional[str] = 'localhost',
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        port: Optional[int] = 3306,
-        database: Optional[str] = None,
-        driver: Optional[str] = None,
-        **kwargs: Any,
-    ) -> None:
-        """
-        Connect to a SingleStore database.
-
-        Parameters
-        ----------
-        url : str, optional
-            Full URL of the database connection in SQLAlchemy form
-        host : str, optional
-            Name or IP address of the database host
-        user : str, optional
-            User name for the database connection
-        password : str, optional
-            Password for the database connection
-        port : int, optional
-            Port number of the database server
-        database : str, optional
-            Name of the database to connect to
-        driver : str, optional
-            Name of the SingleStore database connection driver
-
-        Examples
-        --------
-        >>> import os
-        >>> import getpass
-        >>> url = os.environ.get('IBIS_TEST_SINGLESTORE_URL')
-        >>> host = os.environ.get('IBIS_TEST_SINGLESTORE_HOST', 'localhost')
-        >>> port = int(os.environ.get('IBIS_TEST_SINGLESTORE_PORT', 3306))
-        >>> user = os.environ.get('IBIS_TEST_SINGLESTORE_USER', getpass.getuser())
-        >>> password = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD')
-        >>> database = os.environ.get('IBIS_TEST_SINGLESTORE_DATABASE',
-        ...                           'ibis_testing')
-        >>> con = connect(
-        ...     url=url,
-        ...     host=host,
-        ...     port=port,
-        ...     user=user,
-        ...     password=password,
-        ...     database=database
-        ... )
-        >>> con.list_tables()  # doctest: +ELLIPSIS
-        [...]
-        >>> t = con.table('functional_alltypes')
-        >>> t
-        SingleStoreTable[table]
-          name: functional_alltypes
-          schema:
-            index : int64
-            Unnamed: 0 : int64
-            id : int32
-            bool_col : int8
-            tinyint_col : int8
-            smallint_col : int16
-            int_col : int32
-            bigint_col : int64
-            float_col : float32
-            double_col : float64
-            date_string_col : string
-            string_col : string
-            timestamp_col : timestamp
-            year : int32
-            month : int32
-        """
-        if url:
-            if '//' not in url:
-                if driver:
-                    url = f'singlestore+{driver}://{url}'
-                else:
-                    url = f'singlestore://{url}'
-            elif not url.startswith('singlestore'):
-                url = f'singlestore+{url}'
-            driver = None
-        elif driver:
-            if not driver.startswith('singlestore'):
-                driver = f'singlestore+{driver}'
+    def do_connect(self, *args: str, **kwargs: Any) -> None:
+        """Connect to a SingleStore database."""
+        if args:
+            params = build_params(host=args[0], **kwargs)
         else:
-            driver = 'singlestore'
+            params = build_params(**kwargs)
+
+        driver = params.pop('driver', None)
+        if driver and not driver.startswith('singlestore+'):
+            driver = 'singlestore+{}'.format(driver)
+
         alchemy_url = self._build_alchemy_url(
-            url=url,
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            database=database,
+            url=params.pop('url', None),
+            host=params.pop('host', None),
+            port=params.pop('port', None),
+            user=params.pop('user', None),
+            password=params.pop('password', None),
+            database=params.pop('database', None),
             driver=driver,
         )
-        alchemy_url.set(query={k.lower(): str(v) for k, v in kwargs.items()})
+
+        alchemy_url.set(query={k: str(v) for k, v in params.items()})
 
         self.database_name = alchemy_url.database
+
         super().do_connect(sqlalchemy.create_engine(alchemy_url))
 
     @property
