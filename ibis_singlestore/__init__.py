@@ -678,7 +678,12 @@ class Backend(BaseAlchemyBackend):
 
         self.database_name = alchemy_url.database
 
-        super().do_connect(sqlalchemy.create_engine(alchemy_url))
+        super().do_connect(
+            sqlalchemy.create_engine(
+                alchemy_url,
+                echo=kwargs.get('echo', False), future=kwargs.get('future', False),
+            ),
+        )
 
     @property
     def funcs(self) -> FuncDict:

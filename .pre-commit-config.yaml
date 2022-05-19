@@ -9,9 +9,14 @@ repos:
     -   id: check-added-large-files
     -   id: check-yaml
     -   id: debug-statements
-    -   id: name-tests-test
+#   -   id: name-tests-test
     -   id: double-quote-string-fixer
     -   id: requirements-txt-fixer
+-   repo: https://github.com/PyCQA/flake8
+    rev: 4.0.1
+    hooks:
+    -   id: flake8
+        additional_dependencies: [flake8-typing-imports==1.12.0]
 -   repo: https://github.com/pre-commit/mirrors-autopep8
     rev: v1.6.0
     hooks:
@@ -30,18 +35,8 @@ repos:
     rev: v1.20.0
     hooks:
     -   id: setup-cfg-fmt
--   repo: https://github.com/PyCQA/flake8
-    rev: 4.0.1
-    hooks:
-    -   id: flake8
-        additional_dependencies: [flake8-typing-imports==1.12.0]
 -   repo: https://github.com/pre-commit/mirrors-mypy
     rev: v0.931
     hooks:
     -   id: mypy
         additional_dependencies: [types-all]
--   repo: https://github.com/PyCQA/pydocstyle
-    rev: 6.1.1
-    hooks:
-    -   id: pydocstyle
-        args: [--convention=numpy]
