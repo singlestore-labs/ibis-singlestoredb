@@ -23,7 +23,6 @@ from ibis.backends.base.sql.alchemy import variance_reduction
 operation_registry = sqlalchemy_operation_registry.copy()
 operation_registry.update(sqlalchemy_window_functions_registry)
 
-
 def _substr(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     f = sa.func.substr
 

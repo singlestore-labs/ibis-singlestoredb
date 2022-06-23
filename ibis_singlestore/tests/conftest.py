@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Generator
 
 import ibis
 from ibis.backends.tests.base import BackendTest
 from ibis.backends.tests.base import RoundHalfToEven
 from singlestore.connection import Connection
 
+import pytest
+
+ibis.options.interactive = True
+ibis.options.sql.default_limit = None
+ibis.options.verbose = True
+
+USER = os.environ.get('IBIS_TEST_SINGLESTORE_USER', 'ibis')
+PASSWORD = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD', 'ibis')
+HOST = os.environ.get('IBIS_TEST_SINGLESTORE_HOST', 'localhost')
+PORT = os.environ.get('IBIS_TEST_SINGLESTORE_PORT', 3306)
+DATABASE = os.environ.get('IBIS_TEST_SINGLESTORE_DATABASE', 'ibis_testing')
 
 class TestConf(BackendTest, RoundHalfToEven):
     """
@@ -56,15 +68,76 @@ class TestConf(BackendTest, RoundHalfToEven):
         Connection
 
         """
-        user = os.environ.get('IBIS_TEST_SINGLESTORE_USER', 'ibis')
-        password = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD', 'ibis')
-        host = os.environ.get('IBIS_TEST_SINGLESTORE_HOST', 'localhost')
-        port = os.environ.get('IBIS_TEST_SINGLESTORE_PORT', 3306)
-        database = os.environ.get('IBIS_TEST_SINGLESTORE_DATABASE', 'ibis_testing')
         return ibis.singlestore.connect(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            database=database,
+            host=HOST,
+            port=PORT,
+            user=USER,
+            password=PASSWORD,
+            database=DATABASE,
         )
+
+def _random_identifier(suffix):
+    return f'__ibis_test_{suffix}_{ibis.util.guid()}'
+
+@pytest.fixture(scope='session')
+def con():
+    return ibis.singlestore.connect(
+        host=HOST,
+        port=PORT,
+        user=USER,
+        password=PASSWORD,
+        database=DATABASE,
+    )
+
+@pytest.fixture(scope='module')
+def db(con):
+    return con.database()
+
+
+@pytest.fixture(scope='module')
+def alltypes(db):
+    return db.functional_alltypes
+
+
+@pytest.fixture(scope='module')
+def geotable(con):
+    return con.table('geo')
+
+
+@pytest.fixture(scope='module')
+def df(alltypes):
+    return alltypes.execute()
+
+
+@pytest.fixture(scope='module')
+def gdf(geotable):
+    return geotable.execute()
+
+
+@pytest.fixture(scope='module')
+def at(alltypes):
+    return alltypes.op().sqla_table
+
+
+@pytest.fixture(scope='module')
+def intervals(con):
+    return con.table("intervals")
+
+
+@pytest.fixture
+def temp_table(con) -> Generator[str, None, None]:
+    """
+    Return a temporary table name.
+    Parameters
+    ----------
+    con : ibis.postgres.PostgreSQLClient
+    Yields
+    ------
+    name : string
+        Random table name for a temporary usage.
+    """
+    name = _random_identifier('table')
+    try:
+        yield name
+    finally:
+        con.drop_table(name, force=True)
