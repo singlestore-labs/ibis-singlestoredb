@@ -15,7 +15,7 @@ import pytest
 
 ibis.options.interactive = True
 ibis.options.sql.default_limit = None
-ibis.options.verbose = True
+ibis.options.verbose = False
 
 USER = os.environ.get('IBIS_TEST_SINGLESTORE_USER', 'ibis')
 PASSWORD = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD', 'ibis')

@@ -86,20 +86,20 @@ def df():
             .dt.tz_localize('UTC')
             .astype(str),
             'decimal': list(map(decimal.Decimal, ['1.0', '2', '3.234'])),
-            'array_of_float64': [
-                np.array([1.0, 2.0]),
-                np.array([3.0]),
-                np.array([]),
-            ],
-            'array_of_int64': [np.array([1, 2]), np.array([]), np.array([3])],
-            'array_of_strings': [
-                np.array(['a', 'b']),
-                np.array([]),
-                np.array(['c']),
-            ],
-            'map_of_strings_integers': [{'a': 1, 'b': 2}, None, {}],
-            'map_of_integers_strings': [{}, None, {1: 'a', 2: 'b'}],
-            'map_of_complex_values': [None, {'a': [1, 2, 3], 'b': []}, {}],
+            # 'array_of_float64': [
+            #     np.array([1.0, 2.0]),
+            #     np.array([3.0]),
+            #     np.array([]),
+            # ],
+            # 'array_of_int64': [np.array([1, 2]), np.array([]), np.array([3])],
+            # 'array_of_strings': [
+            #     np.array(['a', 'b']),
+            #     np.array([]),
+            #     np.array(['c']),
+            # ],
+            # 'map_of_strings_integers': [{'a': 1, 'b': 2}, None, {}],
+            # 'map_of_integers_strings': [{}, None, {1: 'a', 2: 'b'}],
+            # 'map_of_complex_values': [None, {'a': [1, 2, 3], 'b': []}, {}],
         }
     )
 
@@ -240,7 +240,18 @@ def pd_client(
 
     
 @pytest.fixture(scope='module')
-def s2_client(pd_client):
+def s2_client(
+    df,
+    df1,
+    df2,
+    df3,
+    time_df1,
+    time_df2,
+    time_df3,
+    time_keyed_df1,
+    time_keyed_df2,
+    intersect_df2,
+):
     con = ibis.singlestore.connect(
             host=HOST,
             port=PORT,
@@ -248,11 +259,18 @@ def s2_client(pd_client):
             password=PASSWORD,
             database=DATABASE,
         )
-    table = pd_client.table("df1")
-    schema = pd_client.table("df1").schema()
-    con.create_table(name="df2", schema=schema, force=True)
-    con.insert("df2", table)
+    con.create_table(name="df", expr=df, force=True)
+    con.create_table(name="df1", expr=df1, force=True)
+    con.create_table(name="df2", expr=df2, force=True)
+    con.create_table(name="df3", expr=df3, force=True)
+    con.create_table(name="time_df1", expr=time_df1, force=True)
+    con.create_table(name="time_df2", expr=time_df2, force=True)
+    con.create_table(name="time_df3", expr=time_df3, force=True)
+    con.create_table(name="time_keyed_df1", expr=time_keyed_df1, force=True)
+    con.create_table(name="time_keyed_df2", expr=time_keyed_df2, force=True)
+    con.create_table(name="intersect_df2", expr=intersect_df2, force=True)
     return con
+
 @pytest.fixture(scope='module')
 def df3():
     return pd.DataFrame(
@@ -280,6 +298,9 @@ t_schema = {
 def t(pd_client):
     return pd_client.table('df', schema=t_schema)
 
+@pytest.fixture(scope='module')
+def s2_t(s2_client):
+    return s2_client.table('df', schema=t_schema)
 
 @pytest.fixture(scope='module')
 def lahman(batting_df, awards_players_df):

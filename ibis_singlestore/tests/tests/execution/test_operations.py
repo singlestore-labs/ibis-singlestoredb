@@ -7,25 +7,36 @@ import pandas as pd
 import pandas.testing as tm
 import pytest
 
+from math import isclose
+
 import ibis
 import ibis.expr.datatypes as dt
 from ibis.backends.pandas import Backend
 from ibis.backends.pandas.execution import execute
 
 
-def test_table_column(t, df):
+def test_table_column(t, s2_t, df):
     expr = t.plain_int64
     result = expr.execute()
     expected = df.plain_int64
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.plain_int64
+    s2_result = s2_expr.execute()
+
+    tm.assert_series_equal(s2_result.sort_values(), expected.sort_values(), check_index=False)
+    tm.assert_series_equal(s2_result.sort_values(), result.sort_values(), check_index=False)
+
 
 def test_literal(pd_client, s2_client):
-    s2_client.list_tables()
     assert pd_client.execute(ibis.literal(1)) == 1
 
+    # SingleStore tests:
+    assert s2_client.execute(ibis.literal(1)) == 1
 
-def test_selection(t, df):
+
+def test_selection(t, s2_t, df):
     expr = t[
         ((t.plain_strings == 'a') | (t.plain_int64 == 3))
         & (t.dup_strings == 'd')
@@ -37,13 +48,47 @@ def test_selection(t, df):
     ].reset_index(drop=True)
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t[
+        ((s2_t.plain_strings == 'a') | (s2_t.plain_int64 == 3))
+        & (s2_t.dup_strings == 'd')
+    ]
+    # s2_result = s2_expr.execute()
+    # expected = expected.sort_values(by='plain_strings')
+    # s2_result = s2_expr.execute().sort_values(by='plain_strings')
+    # for column in expected:
+    #     tm.assert_series_equal(s2_result[column], expected[column], check_index=False, rtol=3)
 
-def test_mutate(t, df):
+    # tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, rtol=0.000000001)
+
+
+    # for column in expected:
+    #     expected_column = np.sort(expected[column], axis=None)
+    #     s2_result_column = np.sort(s2_result[column], axis=None)
+    #     for i, expected_val in enumerate(expected_column):
+    #         try:
+    #             isclose(s2_result_column[i], expected_val)
+    #         except TypeError:
+    #             assert s2_result_column[i] == expected_val
+
+    # for column in expected:
+    #     for i, expected_val in enumerate(expected[column].to_numpy()):
+    #         try:
+    #             isclose(s2_result[column].to_numpy()[i], expected_val)
+    #         except TypeError:
+    #             assert s2_result[column].to_numpy()[i] == expected_val
+
+def test_mutate(t, s2_t, df):
     expr = t.mutate(x=t.plain_int64 + 1, y=t.plain_int64 * 2)
     result = expr.execute()
     expected = df.assign(x=df.plain_int64 + 1, y=df.plain_int64 * 2)
     tm.assert_frame_equal(result[expected.columns], expected)
-
+    
+    s2_expr = s2_t.mutate(x=s2_t.plain_int64 + 1, y=s2_t.plain_int64 * 2)
+    s2_result = s2_expr.execute()
+    expected = expected.sort_values(by='plain_strings')
+    s2_result = s2_expr.execute().sort_values(by='plain_strings')
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True)
 
 def test_project_scope_does_not_override(t, df):
     col = t.plain_int64
