@@ -127,7 +127,12 @@ class Backend(BaseAlchemyBackend):
         if expr is None and schema is None:
             raise ValueError('You must pass either an expression or a schema')
 
-        if isinstance(expr, pd.DataFrame):
+        if isinstance(expr, pd.DataFrame): 
+            for column in expr:
+                try:
+                    expr[column].dt.tz_localize('UTC')
+                except (AttributeError, TypeError):
+                    pass
             expr_schema = ibis.pandas.connect({name : expr}).table(name).schema()
         elif isinstance(expr, ir.TableExpr):
             expr_schema = expr.schema()

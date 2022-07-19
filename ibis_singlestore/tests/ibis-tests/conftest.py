@@ -1,51 +1,37 @@
 from __future__ import annotations
 
+import importlib
 import os
+import platform
+from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, TextIO
 
-import abc
-import inspect
-from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, TYPE_CHECKING, TextIO
-
-import numpy as np
+import _pytest
 import pandas as pd
-import pandas.testing as tm
-import pytest
-from filelock import FileLock
-from toolz import dissoc
-
-import ibis.expr.types as ir
-
-
-import pytest
 import sqlalchemy as sa
-from packaging.version import parse as parse_version
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+import pytest
 
 import ibis
+import ibis.util as util
+
+try:
+    import importlib.metadata as importlib_metadata
+except ImportError:
+    import importlib_metadata
+
+import os
+from pathlib import Path
 
 USER = os.environ.get('IBIS_TEST_SINGLESTORE_USER', 'ibis')
 PASSWORD = os.environ.get('IBIS_TEST_SINGLESTORE_PASSWORD', 'ibis')
 HOST = os.environ.get('IBIS_TEST_SINGLESTORE_HOST', 'localhost')
 PORT = os.environ.get('IBIS_TEST_SINGLESTORE_PORT', 3306)
 DATABASE = os.environ.get('IBIS_TEST_SINGLESTORE_DATABASE', 'ibis_testing')
-
-@pytest.fixture(scope='session')
-def data_directory() -> Path:
-    """Return the test data directory.
-    Returns
-    -------
-    Path
-        Test data directory
-    """
-    root = Path(__file__).absolute().parents[2]
-
-    return Path(
-        os.environ.get(
-            "IBIS_TEST_DATA_DIRECTORY",
-            root / "ci" / "ibis-testing-data",
-        )
-    )
 
 TEST_TABLES = {
     "functional_alltypes": ibis.schema(
@@ -119,13 +105,61 @@ TEST_TABLES = {
     ),
 }
 
-def recreate_database(driver, params, **kwargs):
-    url = sa.engine.url.URL(driver, **dissoc(params, 'database'))
+
+@pytest.fixture(scope='session')
+def script_directory() -> Path:
+    """Return the test script directory.
+
+    Returns
+    -------
+    Path
+        Test script directory
+    """
+    return Path(__file__).absolute().parents[2] / "ci"
+
+
+@pytest.fixture(scope='session')
+def data_directory() -> Path:
+    """Return the test data directory.
+
+    Returns
+    -------
+    Path
+        Test data directory
+    """
+    root = Path(__file__).absolute().parents[2]
+
+    return Path(
+        os.environ.get(
+            "IBIS_TEST_DATA_DIRECTORY",
+            root / "ci" / "ibis-testing-data",
+        )
+    )
+
+
+def recreate_database(
+    url: sa.engine.url.URL,
+    database: str,
+    **kwargs: Any,
+) -> None:
+    """Drop the {database} at {url}, if it exists.
+
+    Create a new, blank database with the same name.
+
+    Parameters
+    ----------
+    url : url.sa.engine.url.URL
+        Connection url to the database
+    database : str
+        Name of the database to be dropped.
+    """
     engine = sa.create_engine(url, **kwargs)
 
-    with engine.connect() as conn:
-        conn.execute('DROP DATABASE IF EXISTS {}'.format(params['database']))
-        conn.execute('CREATE DATABASE {}'.format(params['database']))
+    if url.database is not None:
+        with engine.connect() as conn:
+            conn.execute(f'DROP DATABASE IF EXISTS {database}')
+            conn.execute(f'CREATE DATABASE {database}')
+
 
 def init_database(
     url: sa.engine.url.URL,
@@ -135,7 +169,9 @@ def init_database(
     **kwargs: Any,
 ) -> sa.engine.Engine:
     """Initialise {database} at {url} with {schema}.
+
     If {recreate}, drop the {database} at {url}, if it exists.
+
     Parameters
     ----------
     url : url.sa.engine.url.URL
@@ -146,6 +182,7 @@ def init_database(
         File object containing schema to use
     recreate : bool
         If true, drop the database if it exists
+
     Returns
     -------
     sa.engine.Engine for the database created
@@ -167,330 +204,440 @@ def init_database(
 
     return engine
 
-class RoundingConvention:
-    @staticmethod
-    @abc.abstractmethod
-    def round(series: pd.Series, decimals: int = 0) -> pd.Series:
-        """Round a series to `decimals` number of decimal values."""
 
+def read_tables(
+    names: Iterable[str],
+    data_dir: Path,
+) -> Iterator[tuple[str, pa.Table]]:
+    """For each csv {names} in {data_dir} return a pyarrow.Table"""
 
-# TODO: Merge into BackendTest, #2564
-class RoundAwayFromZero(RoundingConvention):
-    @staticmethod
-    def round(series: pd.Series, decimals: int = 0) -> pd.Series:
-        if not decimals:
-            return (
-                -(np.sign(series)) * np.ceil(-(series.abs()) - 0.5)
-            ).astype(np.int64)
-        return series.round(decimals=decimals)
+    import pyarrow.csv as pac
 
-class RoundHalfToEven(RoundingConvention):
-    @staticmethod
-    def round(series: pd.Series, decimals: int = 0) -> pd.Series:
-        result = series.round(decimals=decimals)
-        return result if decimals else result.astype(np.int64)
+    import ibis.backends.pyarrow.datatypes as pa_dt
 
-class UnorderedComparator:
-    @classmethod
-    def assert_series_equal(
-        cls, left: pd.Series, right: pd.Series, *args: Any, **kwargs: Any
-    ) -> None:
-        left = left.sort_values().reset_index(drop=True)
-        right = right.sort_values().reset_index(drop=True)
-        return super().assert_series_equal(left, right, *args, **kwargs)
-
-    @classmethod
-    def assert_frame_equal(
-        cls, left: pd.DataFrame, right: pd.DataFrame, *args: Any, **kwargs: Any
-    ) -> None:
-        columns = list(set(left.columns) & set(right.columns))
-        left = left.sort_values(by=columns)
-        right = right.sort_values(by=columns)
-        return super().assert_frame_equal(left, right, *args, **kwargs)
-
-class BackendTest(abc.ABC):
-    check_dtype = True
-    check_names = True
-    supports_arrays = True
-    supports_arrays_outside_of_select = supports_arrays
-    supports_window_operations = True
-    additional_skipped_operations = frozenset()
-    supports_divide_by_zero = False
-    returned_timestamp_unit = 'us'
-    supported_to_timestamp_units = {'s', 'ms', 'us'}
-    supports_floating_modulus = True
-    bool_is_int = False
-    supports_structs = True
-
-    def __init__(self, data_directory: Path) -> None:
-        self.connection = self.connect(data_directory)
-        self.data_directory = data_directory
-
-    def __str__(self):
-        return f'<BackendTest {self.name()}>'
-
-    @classmethod
-    def name(cls) -> str:
-        backend_tests_path = inspect.getmodule(cls).__file__
-        return Path(backend_tests_path).resolve().parent.parent.parent.name[5:]
-
-    @staticmethod
-    @abc.abstractmethod
-    def connect(data_directory: Path):
-        """Return a connection with data loaded from `data_directory`."""
-
-    @staticmethod
-    def _load_data(
-        data_directory: Path, script_directory: Path, **kwargs: Any
-    ) -> None:
-        ...
-
-    @classmethod
-    def load_data(
-        cls,
-        data_dir: Path,
-        script_dir: Path,
-        tmpdir: Path,
-        worker_id: str,
-        **kwargs: Any,
-    ) -> None:
-        """Load testdata from `data_directory` into
-        the backend using scripts in `script_directory`."""
-        # handling for multi-processes pytest
-
-        # get the temp directory shared by all workers
-        root_tmp_dir = tmpdir.getbasetemp()
-        if worker_id != "master":
-            root_tmp_dir = root_tmp_dir.parent
-
-        fn = root_tmp_dir / f"lockfile_{cls.name()}"
-        with FileLock(f"{fn}.lock"):
-            if not fn.exists():
-                cls._load_data(data_dir, script_dir, **kwargs)
-                fn.touch()
-        return cls(data_dir)
-
-    @classmethod
-    def assert_series_equal(
-        cls, left: pd.Series, right: pd.Series, *args: Any, **kwargs: Any
-    ) -> None:
-        kwargs.setdefault('check_dtype', cls.check_dtype)
-        kwargs.setdefault('check_names', cls.check_names)
-        tm.assert_series_equal(left, right, *args, **kwargs)
-
-    @classmethod
-    def assert_frame_equal(
-        cls, left: pd.DataFrame, right: pd.DataFrame, *args: Any, **kwargs: Any
-    ) -> None:
-        left = left.reset_index(drop=True)
-        right = right.reset_index(drop=True)
-        tm.assert_frame_equal(left, right, *args, **kwargs)
-
-    @staticmethod
-    def default_series_rename(
-        series: pd.Series, name: str = 'tmp'
-    ) -> pd.Series:
-        return series.rename(name)
-
-    @staticmethod
-    def greatest(f: Callable[..., ir.Value], *args: ir.Value) -> ir.Value:
-        return f(*args)
-
-    @staticmethod
-    def least(f: Callable[..., ir.Value], *args: ir.Value) -> ir.Value:
-        return f(*args)
-
-    @property
-    def functional_alltypes(self) -> ir.Table:
-        t = self.connection.table('functional_alltypes')
-        if self.bool_is_int:
-            return t.mutate(bool_col=t.bool_col == 1)
-        return t
-
-    @property
-    def batting(self) -> ir.Table:
-        return self.connection.table('batting')
-
-    @property
-    def awards_players(self) -> ir.Table:
-        return self.connection.table('awards_players')
-
-    @property
-    def geo(self) -> Optional[ir.Table]:
-        if 'geo' in self.connection.list_tables():
-            return self.connection.table('geo')
-        return None
-
-    @property
-    def struct(self) -> Optional[ir.Table]:
-        if self.supports_structs:
-            return self.connection.table("struct")
-        else:
-            pytest.xfail(
-                f"{self.name()} backend does not support struct types"
-            )
-
-    @property
-    def api(self):
-        return self.connection
-
-    def make_context(self, params: Optional[Mapping[ir.Value, Any]] = None):
-        return self.api.compiler.make_context(params=params)
-
-
-class TestConf(BackendTest, RoundHalfToEven):
-    # singlestore has the same rounding behavior as postgres
-    check_dtype = False
-    supports_window_operations = False
-    returned_timestamp_unit = 's'
-    supports_arrays = False
-    supports_arrays_outside_of_select = supports_arrays
-    bool_is_int = True
-    supports_structs = False
-
-    def __init__(self, data_directory: Path) -> None:
-        super().__init__(data_directory)
-        # mariadb supports window operations after version 10.2
-        # but the sqlalchemy version string looks like:
-        # 5.5.5.10.2.12.MariaDB.10.2.12+maria~jessie
-        # or 10.4.12.MariaDB.1:10.4.12+maria~bionic
-        # example of possible results:
-        # https://github.com/sqlalchemy/sqlalchemy/blob/rel_1_3/
-        # test/dialect/singlestore/test_dialect.py#L244-L268
-        con = self.connection
-        if 'MariaDB' in str(con.version):
-            # we might move this parsing step to the singlestore client
-            version_detail = con.con.dialect._parse_server_version(
-                str(con.version)
-            )
-            version = (
-                version_detail[:3]
-                if version_detail[3] == 'MariaDB'
-                else version_detail[3:6]
-            )
-            self.__class__.supports_window_operations = version >= (10, 2)
-        elif parse_version(con.version) >= parse_version('8.0'):
-            # singlestore supports window operations after version 8
-            self.__class__.supports_window_operations = True
-
-    @staticmethod
-    def _load_data(
-        data_dir: Path,
-        script_dir: Path,
-        user: str = USER,
-        password: str = PASSWORD,
-        host: str = HOST,
-        port: int = PORT,
-        database: str = DATABASE,
-        **_: Any,
-    ) -> None:
-        """Load test data into a SingleStore backend instance.
-        Parameters
-        ----------
-        data_dir
-            Location of testdata
-        script_dir
-            Location of scripts defining schemas
-        """
-        with open(script_dir / 'schema' / 'singlestore.sql') as schema:
-            engine = init_database(
-                url=sa.engine.make_url(
-                    f"singlestore+pymysql://{user}:{password}@{host}:{port:d}?local_infile=1",  # noqa: E501
-                ),
-                database=database,
-                schema=schema,
-                isolation_level="AUTOCOMMIT",
-            )
-            with engine.begin() as con:
-                for table in TEST_TABLES:
-                    csv_path = data_dir / f"{table}.csv"
-                    lines = [
-                        f"LOAD DATA LOCAL INFILE {str(csv_path)!r}",
-                        f"INTO TABLE {table}",
-                        "COLUMNS TERMINATED BY ','",
-                        """OPTIONALLY ENCLOSED BY '"'""",
-                        "LINES TERMINATED BY '\\n'",
-                        "IGNORE 1 LINES",
-                    ]
-                    con.execute("\n".join(lines))
-
-    @staticmethod
-    def connect(_: Path):
-        return ibis.singlestore.connect(
-            host=HOST,
-            port=PORT,
-            user=USER,
-            password=PASSWORD,
-            database=DATABASE,
+    for name in names:
+        schema = TEST_TABLES[name]
+        convert_options = pac.ConvertOptions(
+            column_types={
+                name: pa_dt.to_pyarrow_type(type)
+                for name, type in schema.items()
+            }
+        )
+        yield name, pac.read_csv(
+            data_dir / f'{name}.csv',
+            convert_options=convert_options,
         )
 
 
-def _random_identifier(suffix):
-    return f'__ibis_test_{suffix}_{ibis.util.guid()}'
+def _random_identifier(suffix: str) -> str:
+    return f"__ibis_test_{suffix}_{util.guid()}"
+
+
+@lru_cache(maxsize=None)
+def _get_backend_names() -> frozenset[str]:
+    """Return the set of known backend names.
+
+    Notes
+    -----
+    This function returns a frozenset to prevent cache pollution.
+
+    If a `set` is used, then any in-place modifications to the set
+    are visible to every caller of this function.
+    """
+    return frozenset(
+        entry_point.name
+        for entry_point in importlib_metadata.entry_points()["ibis.backends"]
+    )
+
+
+def _get_backend_conf(backend_str: str):
+    """Convert a backend string to the test class for the backend."""
+    conftest = importlib.import_module(
+        f"ibis.backends.{backend_str}.tests.conftest"
+    )
+    return conftest.TestConf
+
+
+def _get_backend_from_parts(parts: tuple[str, ...]) -> str | None:
+    """Return the backend part of a test file's path parts.
+
+    Examples
+    --------
+    >>> _get_backend_from_parts(("/", "ibis", "backends", "sqlite", "tests"))
+    "sqlite"
+    """
+    try:
+        index = parts.index("backends")
+    except ValueError:
+        return None
+    else:
+        return parts[index + 1]
+
+
+def pytest_ignore_collect(path, config):
+    # get the backend path part
+    #
+    # path is a py.path.local object hence the conversion to Path first
+    backend = _get_backend_from_parts(Path(path).parts)
+    if backend is None or backend not in _get_backend_names():
+        return False
+
+    # we evaluate the marker early so that we don't trigger
+    # an import of conftest files for the backend, which will
+    # import the backend and thus require dependencies that may not
+    # exist
+    #
+    # alternatives include littering library code with pytest.importorskips
+    # and moving all imports close to their use site
+    #
+    # the latter isn't tenable for backends that use multiple dispatch
+    # since the rules are executed at import time
+    mark_expr = config.getoption("-m")
+    # we can't let the empty string pass through, since `'' in s` is `True` for
+    # any `s`; if no marker was passed don't ignore the collection of `path`
+    if not mark_expr:
+        return False
+    expr = _pytest.mark.expression.Expression.compile(mark_expr)
+    # we check the "backend" marker as well since if that's passed
+    # any file matching a backed should be skipped
+    keep = expr.evaluate(lambda s: s in (backend, "backend"))
+    return not keep
+
+
+def pytest_collection_modifyitems(session, config, items):
+    # add the backend marker to any tests are inside "ibis/backends"
+    all_backends = _get_backend_names()
+    for item in items:
+        parts = item.path.parts
+        backend = _get_backend_from_parts(parts)
+        if backend is not None and backend in all_backends:
+            item.add_marker(getattr(pytest.mark, backend))
+            item.add_marker(pytest.mark.backend)
+        elif "backends" not in parts:
+            # anything else is a "core" test and is run by default
+            item.add_marker(pytest.mark.core)
+
+        if "sqlite" in item.nodeid:
+            item.add_marker(pytest.mark.xdist_group(name="sqlite"))
+        if "duckdb" in item.nodeid:
+            item.add_marker(pytest.mark.xdist_group(name="duckdb"))
+
+
+@lru_cache(maxsize=None)
+def _get_backends_to_test(
+    keep: tuple[str, ...] = (),
+    discard: tuple[str, ...] = (),
+) -> list[Any]:
+    """Get a list of `TestConf` classes of the backends to test."""
+    backends = _get_backend_names()
+
+    if discard:
+        backends = backends.difference(discard)
+
+    if keep:
+        backends = backends.intersection(keep)
+
+    # spark is an alias for pyspark
+    backends = backends.difference(("spark",))
+
+    return [
+        pytest.param(
+            backend,
+            marks=[getattr(pytest.mark, backend), pytest.mark.backend],
+            id=backend,
+        )
+        for backend in sorted(backends)
+    ]
+
+
+def pytest_runtest_call(item):
+    """Dynamically add various custom markers."""
+    nodeid = item.nodeid
+    backend = [
+        backend.name()
+        for key, backend in item.funcargs.items()
+        if key.endswith("backend")
+    ]
+    if len(backend) > 1:
+        raise ValueError(
+            f"test {item.originalname} was supplied with multiple backend "
+            f"objects simultaneously. This is likely due to a leaky fixture."
+            f"Backends passed: {(back.name() for back in backend)}"
+        )
+    if not backend:
+        # Check item path to see if test is in backend-specific folder
+        backend = set(_get_backend_names()).intersection(item.path.parts)
+
+    if not backend:
+        return
+
+    backend = next(iter(backend))
+
+    for marker in item.iter_markers(name="skip_backends"):
+        if backend in marker.args[0]:
+            pytest.skip(f"skip_backends: {backend} {nodeid}")
+
+    for marker in item.iter_markers(name='min_spark_version'):
+        min_version = marker.args[0]
+        if backend == 'pyspark':
+            from distutils.version import LooseVersion
+
+            import pyspark
+
+            if LooseVersion(pyspark.__version__) < LooseVersion(min_version):
+                item.add_marker(
+                    pytest.mark.xfail(
+                        reason=f'Require minimal spark version {min_version}, '
+                        f'but is {pyspark.__version__}',
+                        **marker.kwargs,
+                    )
+                )
+
+    # Ibis hasn't exposed existing functionality
+    # This xfails so that you know when it starts to pass
+    for marker in item.iter_markers(name="notimpl"):
+        if backend in marker.args[0]:
+            reason = marker.kwargs.get("reason")
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason=reason or f'Feature not yet exposed in {backend}',
+                    **{
+                        k: v for k, v in marker.kwargs.items() if k != "reason"
+                    },
+                )
+            )
+
+    # Functionality is unavailable upstream (but could be)
+    # This xfails so that you know when it starts to pass
+    for marker in item.iter_markers(name="notyet"):
+        if backend in marker.args[0]:
+            reason = marker.kwargs.get("reason")
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason=reason
+                    or f'Feature not available upstream for {backend}',
+                    **{
+                        k: v for k, v in marker.kwargs.items() if k != "reason"
+                    },
+                )
+            )
+
+    for marker in item.iter_markers(name="never"):
+        if backend in marker.args[0]:
+            if "reason" not in marker.kwargs.keys():
+                raise ValueError("never requires a reason")
+            item.add_marker(
+                pytest.mark.xfail(
+                    **marker.kwargs,
+                )
+            )
+
+    # Something has been exposed as broken by a new test and it shouldn't be
+    # imperative for a contributor to fix it just because they happened to
+    # bring it to attention  -- USE SPARINGLY
+    for marker in item.iter_markers(name="broken"):
+        if backend in marker.args[0]:
+            reason = marker.kwargs.get("reason")
+            item.add_marker(
+                pytest.mark.xfail(
+                    reason=reason or f"Feature is failing on {backend}",
+                    **{
+                        k: v for k, v in marker.kwargs.items() if k != "reason"
+                    },
+                )
+            )
+
+
+@pytest.fixture(params=_get_backends_to_test(), scope='session')
+def backend(
+    request, data_directory, script_directory, tmp_path_factory, worker_id
+):
+    """Return an instance of BackendTest, loaded with data."""
+
+    cls = _get_backend_conf(request.param)
+    return cls.load_data(
+        data_directory, script_directory, tmp_path_factory, worker_id
+    )
+
+
+@pytest.fixture(scope="session")
+def con(backend):
+    """Instance of a backend client."""
+    return backend.connection
+
+
+def _setup_backend(
+    request, data_directory, script_directory, tmp_path_factory, worker_id
+):
+    if (
+        backend := request.param
+    ) == "duckdb" and platform.system() == "Windows":
+        pytest.xfail(
+            "windows prevents two connections to the same duckdb file "
+            "even in the same process"
+        )
+    else:
+        cls = _get_backend_conf(backend)
+        return cls.load_data(
+            data_directory, script_directory, tmp_path_factory, worker_id
+        )
+
+
+@pytest.fixture(
+    params=_get_backends_to_test(discard=("dask", "pandas")),
+    scope='session',
+)
+def ddl_backend(
+    request, data_directory, script_directory, tmp_path_factory, worker_id
+):
+    """Set up the backends that are SQL-based.
+
+    (sqlite, postgres, mysql, duckdb, datafusion, clickhouse, pyspark, impala)
+    """
+    return _setup_backend(
+        request, data_directory, script_directory, tmp_path_factory, worker_id
+    )
 
 
 @pytest.fixture(scope='session')
-def con():
-    return ibis.singlestore.connect(
-        host=HOST,
-        port=PORT,
-        user=USER,
-        password=PASSWORD,
-        database=DATABASE,
+def ddl_con(ddl_backend):
+    """
+    Instance of Client, already connected to the db (if applies).
+    """
+    return ddl_backend.connection
+
+
+@pytest.fixture(
+    params=_get_backends_to_test(
+        keep=("sqlite", "postgres", "mysql", "duckdb", "singlestore")
+    ),
+    scope='session',
+)
+def alchemy_backend(
+    request, data_directory, script_directory, tmp_path_factory, worker_id
+):
+    """Set up the SQLAlchemy-based backends.
+
+    (sqlite, mysql, postgres, duckdb, singlestore)
+    """
+    return _setup_backend(
+        request, data_directory, script_directory, tmp_path_factory, worker_id
     )
+
 
 @pytest.fixture(scope='session')
-def con():
-    return ibis.singlestore.connect(
-        host=HOST,
-        port=PORT,
-        user=USER,
-        password=PASSWORD,
-        database=DATABASE,
+def alchemy_con(alchemy_backend):
+    """
+    Instance of Client, already connected to the db (if applies).
+    """
+    return alchemy_backend.connection
+
+
+@pytest.fixture(
+    params=_get_backends_to_test(keep=("dask", "pandas", "pyspark")),
+    scope='session',
+)
+def udf_backend(
+    request, data_directory, script_directory, tmp_path_factory, worker_id
+):
+    """
+    Runs the UDF-supporting backends
+    """
+    cls = _get_backend_conf(request.param)
+    return cls.load_data(
+        data_directory, script_directory, tmp_path_factory, worker_id
     )
 
-@pytest.fixture(scope='module')
-def db(con):
-    return con.database()
+
+@pytest.fixture(scope='session')
+def udf_con(udf_backend):
+    """
+    Instance of Client, already connected to the db (if applies).
+    """
+    return udf_backend.connection
 
 
-@pytest.fixture(scope='module')
-def alltypes(db):
-    return db.functional_alltypes
+@pytest.fixture(scope='session')
+def alltypes(backend):
+    return backend.functional_alltypes
 
 
-@pytest.fixture(scope='module')
-def geotable(con):
-    return con.table('geo')
+@pytest.fixture(scope='session')
+def struct(backend):
+    return backend.struct
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
+def sorted_alltypes(alltypes):
+    return alltypes.sort_by('id')
+
+
+@pytest.fixture(scope='session')
+def udf_alltypes(udf_backend):
+    return udf_backend.functional_alltypes
+
+
+@pytest.fixture(scope='session')
+def batting(backend):
+    return backend.batting
+
+
+@pytest.fixture(scope='session')
+def awards_players(backend):
+    return backend.awards_players
+
+
+@pytest.fixture
+def analytic_alltypes(alltypes):
+    return alltypes
+
+
+@pytest.fixture(scope='session')
 def df(alltypes):
     return alltypes.execute()
 
 
-@pytest.fixture(scope='module')
-def gdf(geotable):
-    return geotable.execute()
+@pytest.fixture(scope='session')
+def struct_df(struct):
+    return struct.execute()
 
 
-@pytest.fixture(scope='module')
-def at(alltypes):
-    return alltypes.op().sqla_table
+@pytest.fixture(scope='session')
+def udf_df(udf_alltypes):
+    return udf_alltypes.execute()
 
 
-@pytest.fixture(scope='module')
-def intervals(con):
-    return con.table("intervals")
+@pytest.fixture(scope='session')
+def sorted_df(df):
+    return df.sort_values('id').reset_index(drop=True)
+
+
+@pytest.fixture(scope='session')
+def batting_df(batting):
+    return batting.execute(limit=None)
+
+
+@pytest.fixture(scope='session')
+def awards_players_df(awards_players):
+    return awards_players.execute(limit=None)
+
+
+@pytest.fixture(scope='session')
+def geo_df(geo):
+    if geo is not None:
+        return geo.execute(limit=None)
+    return None
 
 
 @pytest.fixture
-def temp_table(con) -> Generator[str, None, None]:
+def alchemy_temp_table(alchemy_con) -> str:
     """
     Return a temporary table name.
+
     Parameters
     ----------
-    con : ibis.postgres.PostgreSQLClient
+    alchemy_con : ibis.backends.base.Client
+
     Yields
     ------
     name : string
@@ -500,8 +647,131 @@ def temp_table(con) -> Generator[str, None, None]:
     try:
         yield name
     finally:
-        con.drop_table(name, force=True)
+        try:
+            alchemy_con.drop_table(name, force=True)
+        except NotImplementedError:
+            pass
+
+
+@pytest.fixture
+def temp_table(con) -> str:
+    """
+    Return a temporary table name.
+
+    Parameters
+    ----------
+    con : ibis.backends.base.Client
+
+    Yields
+    ------
+    name : string
+        Random table name for a temporary usage.
+    """
+    name = _random_identifier('table')
+    try:
+        yield name
+    finally:
+        try:
+            con.drop_table(name, force=True)
+        except NotImplementedError:
+            pass
+
+
+@pytest.fixture
+def temp_view(ddl_con) -> str:
+    """Return a temporary view name.
+
+    Parameters
+    ----------
+    ddl_con : backend connection
+
+    Yields
+    ------
+    name : string
+        Random view name for a temporary usage.
+    """
+    name = _random_identifier('view')
+    try:
+        yield name
+    finally:
+        try:
+            ddl_con.drop_view(name, force=True)
+        except NotImplementedError:
+            pass
+
 
 @pytest.fixture(scope='session')
-def backend():
-    return TestConf(data_directory)
+def current_data_db(ddl_con) -> str:
+    """Return current database name."""
+    return ddl_con.current_database
+
+
+@pytest.fixture
+def alternate_current_database(
+    ddl_con, ddl_backend, current_data_db: str
+) -> str:
+    """Create a temporary database and yield its name.
+    Drops the created database upon completion.
+
+    Parameters
+    ----------
+    ddl_con : ibis.backends.base.Client
+    current_data_db : str
+    Yields
+    -------
+    str
+    """
+    name = _random_identifier('database')
+    try:
+        ddl_con.create_database(name)
+    except NotImplementedError:
+        pytest.skip(
+            f"{ddl_backend.name()} doesn't have create_database method."
+        )
+    try:
+        yield name
+    finally:
+        ddl_con.set_database(current_data_db)
+        ddl_con.drop_database(name, force=True)
+
+
+@pytest.fixture
+def test_employee_schema() -> ibis.schema:
+    sch = ibis.schema(
+        [
+            ('first_name', 'string'),
+            ('last_name', 'string'),
+            ('department_name', 'string'),
+            ('salary', 'float64'),
+        ]
+    )
+
+    return sch
+
+
+@pytest.fixture
+def test_employee_data_1():
+    df = pd.DataFrame(
+        {
+            'first_name': ['A', 'B', 'C'],
+            'last_name': ['D', 'E', 'F'],
+            'department_name': ['AA', 'BB', 'CC'],
+            'salary': [100.0, 200.0, 300.0],
+        }
+    )
+
+    return df
+
+
+@pytest.fixture
+def test_employee_data_2():
+    df2 = pd.DataFrame(
+        {
+            'first_name': ['X', 'Y', 'Z'],
+            'last_name': ['A', 'B', 'C'],
+            'department_name': ['XX', 'YY', 'ZZ'],
+            'salary': [400.0, 500.0, 600.0],
+        }
+    )
+
+    return df2

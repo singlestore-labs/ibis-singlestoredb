@@ -225,6 +225,16 @@ def _day_of_week_name(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.func.dayname(t.translate(arg))
 
 
+def _where(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    (boolean_expr, true_expr, false_null_expr) = map(t.translate, expr.op().args)
+    import pdb
+    pdb.set_trace()
+    return sa.case(
+        [(boolean_expr, true_expr)],
+          else_=false_null_expr,
+    )
+
+
 operation_registry.update(
     {
         ops.Literal: _literal,
@@ -274,5 +284,6 @@ operation_registry.update(
         ops.GroupConcat: _group_concat,
         ops.DayOfWeekIndex: _day_of_week_index,
         ops.DayOfWeekName: _day_of_week_name,
+        ops.Where: _where,
     },
 )

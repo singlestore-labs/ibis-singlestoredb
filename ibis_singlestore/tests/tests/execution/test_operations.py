@@ -11,7 +11,7 @@ from math import isclose
 
 import ibis
 import ibis.expr.datatypes as dt
-from ibis.backends.pandas import Backend
+from ibis.backends.pandas import Backend as Pandas_Backend
 from ibis.backends.pandas.execution import execute
 
 
@@ -53,44 +53,26 @@ def test_selection(t, s2_t, df):
         ((s2_t.plain_strings == 'a') | (s2_t.plain_int64 == 3))
         & (s2_t.dup_strings == 'd')
     ]
-    # s2_result = s2_expr.execute()
-    # expected = expected.sort_values(by='plain_strings')
-    # s2_result = s2_expr.execute().sort_values(by='plain_strings')
-    # for column in expected:
-    #     tm.assert_series_equal(s2_result[column], expected[column], check_index=False, rtol=3)
 
-    # tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, rtol=0.000000001)
+    expected = expected.sort_values(by='plain_strings').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='plain_strings').reset_index(drop=True)
 
-
-    # for column in expected:
-    #     expected_column = np.sort(expected[column], axis=None)
-    #     s2_result_column = np.sort(s2_result[column], axis=None)
-    #     for i, expected_val in enumerate(expected_column):
-    #         try:
-    #             isclose(s2_result_column[i], expected_val)
-    #         except TypeError:
-    #             assert s2_result_column[i] == expected_val
-
-    # for column in expected:
-    #     for i, expected_val in enumerate(expected[column].to_numpy()):
-    #         try:
-    #             isclose(s2_result[column].to_numpy()[i], expected_val)
-    #         except TypeError:
-    #             assert s2_result[column].to_numpy()[i] == expected_val
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
 
 def test_mutate(t, s2_t, df):
     expr = t.mutate(x=t.plain_int64 + 1, y=t.plain_int64 * 2)
     result = expr.execute()
     expected = df.assign(x=df.plain_int64 + 1, y=df.plain_int64 * 2)
     tm.assert_frame_equal(result[expected.columns], expected)
-    
-    s2_expr = s2_t.mutate(x=s2_t.plain_int64 + 1, y=s2_t.plain_int64 * 2)
-    s2_result = s2_expr.execute()
-    expected = expected.sort_values(by='plain_strings')
-    s2_result = s2_expr.execute().sort_values(by='plain_strings')
-    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True)
 
-def test_project_scope_does_not_override(t, df):
+    # SingleStore tests:
+    s2_expr = s2_t.mutate(x=s2_t.plain_int64 + 1, y=s2_t.plain_int64 * 2)
+
+    expected = expected.sort_values(by='plain_strings').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='plain_strings').reset_index(drop=True)
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
+
+def test_project_scope_does_not_override(t, s2_t, df):
     col = t.plain_int64
     expr = t[
         [
@@ -113,7 +95,21 @@ def test_project_scope_does_not_override(t, df):
         ],
         axis=1,
     )[['new_col', 'grouped']]
-    tm.assert_frame_equal(result, expected)
+    tm.assert_frame_equal(result[expected.columns], expected)
+
+    # SingleStore tests:
+    s2_col = s2_t.plain_int64
+    s2_expr = s2_t[
+        [
+            s2_col.name('new_col'),
+            s2_col.sum()
+            .over(ibis.window(group_by='dup_strings'))
+            .name('grouped'),
+        ]
+    ]
+    expected = expected.sort_values(by='new_col').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='new_col').reset_index(drop=True)
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
 
 
 @pytest.mark.parametrize(
@@ -143,7 +139,7 @@ def test_project_scope_does_not_override(t, df):
         (methodcaller('sqrt'), np.sqrt),
     ],
 )
-def test_aggregation_group_by(t, df, where, ibis_func, pandas_func):
+def test_aggregation_group_by(t, s2_t, df, where, ibis_func, pandas_func):
     ibis_where = where(t)
     expr = t.group_by(t.dup_strings).aggregate(
         avg_plain_int64=t.plain_int64.mean(where=ibis_where),
@@ -201,8 +197,45 @@ def test_aggregation_group_by(t, df, where, ibis_func, pandas_func):
     rhs = expected
     tm.assert_frame_equal(lhs, rhs)
 
+    # SingleStore tests:
+    s2_where = where(s2_t)
+    s2_expr = s2_t.group_by(s2_t.dup_strings).aggregate(
+        avg_plain_int64=s2_t.plain_int64.mean(where=s2_where),
+        sum_plain_float64=s2_t.plain_float64.sum(where=s2_where),
+        mean_float64_positive=ibis_func(s2_t.float64_positive).mean(
+            where=s2_where
+        ),
+        neg_mean_int64_with_zeros=(-s2_t.int64_with_zeros).mean(where=s2_where),
+        nunique_dup_ints=s2_t.dup_ints.nunique(),
+    )
+    s2_result = s2_expr.execute()
+    # TODO(phillipc): Why does pandas not return floating point values here?
+    expected['avg_plain_int64'] = expected.avg_plain_int64.astype('float64')
+    s2_result['avg_plain_int64'] = s2_result.avg_plain_int64.astype('float64')
+    expected[
+        'neg_mean_int64_with_zeros'
+    ] = expected.neg_mean_int64_with_zeros.astype('float64')
+    s2_result[
+        'neg_mean_int64_with_zeros'
+    ] = s2_result.neg_mean_int64_with_zeros.astype('float64')
+    expected['mean_float64_positive'] = expected.mean_float64_positive.astype(
+        'float64'
+    )
+    s2_result['mean_float64_positive'] = s2_result.mean_float64_positive.astype(
+        'float64'
+    )
 
-def test_aggregation_without_group_by(t, df):
+    lhs = s2_result[expected.columns].sort_values(by='avg_plain_int64').reset_index(drop=True)
+
+    rhs = expected.sort_values(by='avg_plain_int64').reset_index(drop=True)
+    for column in lhs:
+        for i, row in enumerate(lhs[column]):
+            if pd.isnull(row):
+                assert pd.isnull(rhs[column].iloc[i]) or rhs[column].iloc[i] == 0
+            else:
+                assert rhs[column].iloc[i] == lhs[column].iloc[i]
+
+def test_aggregation_without_group_by(t, s2_t, df):
     expr = t.aggregate(
         avg_plain_int64=t.plain_int64.mean(),
         sum_plain_float64=t.plain_float64.sum(),
@@ -222,8 +255,17 @@ def test_aggregation_without_group_by(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.aggregate(
+        avg_plain_int64=s2_t.plain_int64.mean(),
+        sum_plain_float64=s2_t.plain_float64.sum(),
+    )
+    s2_result = s2_expr.execute()[['avg_plain_int64', 'sum_plain_float64']]
+    expected = expected.sort_values(by='avg_plain_int64').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='avg_plain_int64').reset_index(drop=True)
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
 
-def test_group_by_with_having(t, df):
+def test_group_by_with_having(t, s2_t, df):
     expr = (
         t.group_by(t.dup_strings)
         .having(t.plain_float64.sum() == 5)
@@ -241,8 +283,18 @@ def test_group_by_with_having(t, df):
 
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = (
+        s2_t.group_by(s2_t.dup_strings)
+        .having(s2_t.plain_float64.sum() == 5)
+        .aggregate(avg_a=s2_t.plain_int64.mean(), sum_c=s2_t.plain_float64.sum())
+    )
+    
+    expected = expected.sort_values(by='sum_c').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='sum_c').reset_index(drop=True)
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
 
-def test_group_by_rename_key(t, df):
+def test_group_by_rename_key(t, s2_t, df):
     expr = t.groupby(t.dup_strings.name('foo')).aggregate(
         dup_string_count=t.dup_strings.count()
     )
@@ -260,6 +312,17 @@ def test_group_by_rename_key(t, df):
     )
     tm.assert_frame_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby(s2_t.dup_strings.name('foo')).aggregate(
+        dup_string_count=s2_t.dup_strings.count()
+    )
+
+    assert 'foo' in s2_expr.schema()
+    s2_result = s2_expr.execute()
+    assert 'foo' in s2_result.columns
+    expected = expected.sort_values(by='foo').reset_index(drop=True)
+    s2_result = s2_expr.execute().sort_values(by='foo').reset_index(drop=True)
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_like=True, check_dtype=False)
 
 @pytest.mark.parametrize('reduction', ['mean', 'sum', 'count', 'std', 'var'])
 @pytest.mark.parametrize(
@@ -271,7 +334,7 @@ def test_group_by_rename_key(t, df):
         lambda t: None,
     ],
 )
-def test_reduction(t, df, reduction, where):
+def test_reduction(t, s2_t, df, reduction, where):
     func = getattr(t.plain_int64, reduction)
     mask = where(t)
     expr = func(where=mask)
@@ -285,6 +348,14 @@ def test_reduction(t, df, reduction, where):
     expected = expected_func()
     assert result == expected
 
+    # SingleStore tests:
+    s2_func = getattr(s2_t.plain_int64, reduction)
+    s2_mask = where(s2_t)
+    s2_expr = s2_func(where=s2_mask)
+    s2_result = s2_expr.execute()
+    assert isclose(s2_result, expected, abs_tol=1e-4)
+
+
 
 @pytest.mark.parametrize(
     'reduction',
@@ -295,20 +366,29 @@ def test_reduction(t, df, reduction, where):
         lambda x: ~(x.all()),
     ],
 )
-def test_boolean_aggregation(t, df, reduction):
+def test_boolean_aggregation(t, s2_t, df, reduction):
     expr = reduction(t.plain_int64 == 1)
     result = expr.execute()
     expected = reduction(df.plain_int64 == 1)
     assert result == expected
 
+    # SingleStore tests:
+    s2_expr = reduction(s2_t.plain_int64 == 1)
+    s2_result = s2_expr.execute()
+    assert s2_result == expected
 
 @pytest.mark.parametrize('column', ['float64_with_zeros', 'int64_with_zeros'])
-def test_null_if_zero(t, df, column):
+def test_null_if_zero(t, s2_t, df, column):
     expr = t[column].nullifzero()
     result = expr.execute()
     expected = df[column].replace(0, np.nan)
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t[column].nullifzero()
+    s2_result = s2_expr.execute().sort_values()
+    expected = expected.sort_values()
+    tm.assert_series_equal(s2_result, expected, check_names=False, check_index=False)
 
 @pytest.mark.parametrize(
     ('left', 'right', 'expected', 'compare'),
@@ -357,18 +437,56 @@ def test_nullif(t, df, left, right, expected, compare):
     result = execute(expr)
     compare(result, expected(df))
 
+# SingleStore tests:
+def test_s2_nullif(s2_client, s2_t, df):
+    s2_expr = ibis.literal(1).nullif(ibis.literal(1))
+    s2_result = s2_client.execute(s2_expr)
+    assert(pd.isnull(s2_result))
+
+    s2_expr = ibis.literal(1).nullif(ibis.literal(2))
+    s2_result = s2_client.execute(s2_expr)
+    np.testing.assert_array_equal(s2_result, 1)
+
+    s2_expr = s2_t.dup_strings.nullif(ibis.literal('a'))
+    s2_result = s2_client.execute(s2_expr).sort_values()
+    expected = df.dup_strings.where(df.dup_strings != 'a').sort_values()
+
+    for i, val in enumerate(s2_result):
+        if pd.isnull(val):
+            assert pd.isnull(expected.iloc[i])
+        else:
+            assert val == expected.iloc[i]
+    
+    s2_expr = s2_t.dup_strings.nullif(s2_t.dup_strings)
+    s2_result = s2_expr.execute().sort_values()
+    expected = df.dup_strings.where(df.dup_strings != df.dup_strings).sort_values()
+    tm.assert_series_equal(s2_result, expected, check_names=False)
+
+    s2_expr = ibis.literal('a').nullif(s2_t.dup_strings)
+    s2_result = s2_client.execute(s2_expr).sort_values()
+    expected = pd.Series(
+                np.where(df.dup_strings == 'a', np.nan, 'a'), index=df.index
+            ).sort_values()
+    
+    for i, val in enumerate(expected):
+        if val == 'nan':
+            assert pd.isnull(s2_result.iloc[i])
+        else:
+            assert val == s2_result.iloc[i]
+
 
 def test_nullif_inf():
     df = pd.DataFrame({'a': [np.inf, 3.14, -np.inf, 42.0]})
-    con = Backend().connect({'t': df})
+    con = Pandas_Backend().connect({'t': df})
     t = con.table('t')
     expr = t.a.nullif(np.inf).nullif(-np.inf)
     result = expr.execute()
     expected = pd.Series([np.nan, 3.14, np.nan, 42.0], name='a')
     tm.assert_series_equal(result, expected)
 
+    # SingleStore does not support infinity
 
-def test_group_concat(t, df):
+def test_group_concat(t, s2_t, df):
     expr = t.groupby(t.dup_strings).aggregate(
         foo=t.plain_int64.group_concat(',')
     )
@@ -381,20 +499,39 @@ def test_group_concat(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby(s2_t.dup_strings).aggregate(
+        foo=s2_t.plain_int64.group_concat(',')
+    )
+    s2_result = s2_expr.execute()
+    for column in s2_result:
+        for i, row in enumerate(s2_result[column].sort_values()):
+            expected[column].sort_values().iloc[i] == row
+
 
 @pytest.mark.parametrize('offset', [0, 2])
-def test_frame_limit(t, df, offset):
+def test_frame_limit(t, s2_t, df, offset):
     n = 5
     df_expr = t.limit(n, offset=offset)
     result = df_expr.execute()
     expected = df.iloc[offset : offset + n].reset_index(drop=True)
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_df_expr = s2_t.limit(n, offset=offset)
+    s2_result = s2_df_expr.execute()
+    for column in s2_result:
+        for i, row in enumerate(s2_result[column].sort_values()):
+            expected[column].sort_values().iloc[i] == row
 
 @pytest.mark.parametrize('offset', [0, 2])
-def test_series_limit(t, df, offset):
+def test_series_limit(t, s2_t, df, offset):
     with pytest.raises(AttributeError):
         t.plain_int64.limit(5, offset=offset)
+    
+    # SingleStore tests:
+    with pytest.raises(AttributeError):
+        s2_t.plain_int64.limit(5, offset=offset)
 
 
 @pytest.mark.parametrize(
@@ -417,7 +554,7 @@ def test_series_limit(t, df, offset):
     'column',
     ['plain_datetimes_naive', 'plain_datetimes_ny', 'plain_datetimes_utc'],
 )
-def test_sort_by(t, df, column, key, pandas_by, pandas_ascending):
+def test_sort_by(t, s2_t, df, column, key, pandas_by, pandas_ascending):
     expr = t.sort_by(key(t, column))
     result = expr.execute()
     expected = df.sort_values(
@@ -425,8 +562,13 @@ def test_sort_by(t, df, column, key, pandas_by, pandas_ascending):
     ).reset_index(drop=True)
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.sort_by(key(s2_t, column))
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_dtype=False)
 
-def test_complex_sort_by(t, df):
+
+def test_complex_sort_by(t, s2_t, df):
     expr = t.sort_by(
         [ibis.desc(t.plain_int64 * t.plain_float64), t.plain_float64]
     )
@@ -440,15 +582,27 @@ def test_complex_sort_by(t, df):
 
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.sort_by(
+        [ibis.desc(s2_t.plain_int64 * s2_t.plain_float64), s2_t.plain_float64]
+    )
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected, check_dtype=False)
 
-def test_count_distinct(t, df):
+
+def test_count_distinct(t, s2_t, df):
     expr = t.dup_strings.nunique()
     result = expr.execute()
     expected = df.dup_strings.nunique()
     assert result == expected
 
+    # SingleStore tests:
+    s2_expr = s2_t.dup_strings.nunique()
+    s2_result = s2_expr.execute()
+    assert s2_result == expected
 
-def test_value_counts(t, df):
+
+def test_value_counts(t, s2_t, df):
     expr = t.dup_strings.value_counts()
     result = expr.execute()
     expected = (
@@ -461,15 +615,25 @@ def test_value_counts(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.dup_strings.value_counts()
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
-def test_table_count(t, df):
+
+def test_table_count(t, s2_t, df):
     expr = t.count()
     result = expr.execute()
     expected = len(df)
     assert result == expected
 
+    # SingleStore tests:
+    s2_expr = s2_t.count()
+    s2_result = s2_expr.execute()
+    assert s2_result == expected
 
-def test_weighted_average(t, df):
+
+def test_weighted_average(t, s2_t, df):
     expr = t.groupby(t.dup_strings).aggregate(
         avg=(t.plain_float64 * t.plain_int64).sum() / t.plain_int64.sum()
     )
@@ -485,8 +649,15 @@ def test_weighted_average(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby(s2_t.dup_strings).aggregate(
+        avg=(s2_t.plain_float64 * s2_t.plain_int64).sum() / s2_t.plain_int64.sum()
+    )
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
-def test_group_by_multiple_keys(t, df):
+
+def test_group_by_multiple_keys(t, s2_t, df):
     expr = t.groupby([t.dup_strings, t.dup_ints]).aggregate(
         avg_plain_float64=t.plain_float64.mean()
     )
@@ -499,8 +670,15 @@ def test_group_by_multiple_keys(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby([s2_t.dup_strings, s2_t.dup_ints]).aggregate(
+        avg_plain_float64=s2_t.plain_float64.mean()
+    )
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
-def test_mutate_after_group_by(t, df):
+
+def test_mutate_after_group_by(t, s2_t, df):
     gb = t.groupby(t.dup_strings).aggregate(
         avg_plain_float64=t.plain_float64.mean()
     )
@@ -515,8 +693,16 @@ def test_mutate_after_group_by(t, df):
     expected = expected.assign(x=expected.avg_plain_float64)
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_gb = s2_t.groupby(s2_t.dup_strings).aggregate(
+        avg_plain_float64=s2_t.plain_float64.mean()
+    )
+    s2_expr = s2_gb.mutate(x=s2_gb.avg_plain_float64)
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
-def test_groupby_with_unnamed_arithmetic(t, df):
+
+def test_groupby_with_unnamed_arithmetic(t, s2_t, df):
     expr = t.groupby(t.dup_strings).aggregate(
         naive_variance=(
             (t.plain_float64**2).sum() - t.plain_float64.mean() ** 2
@@ -537,47 +723,83 @@ def test_groupby_with_unnamed_arithmetic(t, df):
     )
     tm.assert_frame_equal(result[expected.columns], expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby(s2_t.dup_strings).aggregate(
+        naive_variance=(
+            (s2_t.plain_float64**2).sum() - s2_t.plain_float64.mean() ** 2
+        )
+        / s2_t.plain_float64.count()
+    )
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
-def test_isnull(t, df):
+
+
+def test_isnull(t, s2_t, df):
     expr = t.strings_with_nulls.isnull()
     result = expr.execute()
     expected = df.strings_with_nulls.isnull()
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.strings_with_nulls.isnull()
+    s2_result = s2_expr.execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.sort_values().reset_index(drop=True), check_names=False)
 
-def test_notnull(t, df):
+
+def test_notnull(t, s2_t, df):
     expr = t.strings_with_nulls.notnull()
     result = expr.execute()
     expected = df.strings_with_nulls.notnull()
-    tm.assert_series_equal(result, expected)
+    tm.assert_series_equal(result.sort_values(), expected.sort_values())
+
+    # SingleStore tests:
+    s2_expr = s2_t.strings_with_nulls.notnull()
+    s2_result = s2_expr.execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.sort_values().reset_index(drop=True), check_names=False)
 
 
 @pytest.mark.parametrize('raw_value', [0.0, 1.0])
-def test_scalar_parameter(t, df, raw_value):
+def test_scalar_parameter(t, s2_t, df, raw_value):
     value = ibis.param(dt.double)
     expr = t.float64_with_zeros == value
     result = expr.execute(params={value: raw_value})
     expected = df.float64_with_zeros == raw_value
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.float64_with_zeros == value
+    s2_result = s2_expr.execute(params={value: raw_value})
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.sort_values().reset_index(drop=True), check_names=False)
+
 
 @pytest.mark.parametrize('elements', [[1], (1,), {1}, frozenset({1})])
-def test_isin(t, df, elements):
+def test_isin(t, s2_t, df, elements):
     expr = t.plain_float64.isin(elements)
     expected = df.plain_float64.isin(elements)
     result = expr.execute()
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.plain_float64.isin(elements)
+    s2_result = s2_expr.execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.sort_values().reset_index(drop=True), check_names=False)
+
 
 @pytest.mark.parametrize('elements', [[1], (1,), {1}, frozenset({1})])
-def test_notin(t, df, elements):
+def test_notin(t, s2_t, df, elements):
     expr = t.plain_float64.notin(elements)
     expected = ~df.plain_float64.isin(elements)
     result = expr.execute()
     tm.assert_series_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.plain_float64.notin(elements)
+    s2_result = s2_expr.execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.sort_values().reset_index(drop=True), check_names=False)
 
-def test_cast_on_group_by(t, df):
+
+def test_cast_on_group_by(t, s2_t, df):
     expr = t.groupby(t.dup_strings).aggregate(
         casted=(t.float64_with_zeros == 0).cast('int64').sum()
     )
@@ -589,6 +811,13 @@ def test_cast_on_group_by(t, df):
         .rename(columns={'float64_with_zeros': 'casted'})
     )
     tm.assert_frame_equal(result, expected)
+
+    # SingleStore tests:
+    s2_expr = s2_t.groupby(s2_t.dup_strings).aggregate(
+        casted=(s2_t.float64_with_zeros == 0).cast('int64').sum()
+    )
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result[expected.columns], expected)
 
 
 @pytest.mark.parametrize(
@@ -605,11 +834,21 @@ def test_cast_on_group_by(t, df):
     ids=operator.attrgetter('__name__'),
 )
 @pytest.mark.parametrize('args', [lambda c: (1.0, c), lambda c: (c, 1.0)])
-def test_left_binary_op(t, df, op, args):
+def test_left_binary_op(t, s2_t, df, op, args):
     expr = op(*args(t.float64_with_zeros))
     result = expr.execute()
     expected = op(*args(df.float64_with_zeros))
     tm.assert_series_equal(result, expected)
+    
+    # SingleStore tests:
+    s2_expr = op(*args(s2_t.float64_with_zeros))
+    s2_result = s2_expr.execute().sort_values()
+    expected = expected.sort_values()
+    for i, val in enumerate(s2_result):
+        if pd.isnull(val):
+            assert (expected.iloc[i] == np.inf or expected.iloc[i] == 0 or pd.isnull(expected.iloc[i]))
+        else:
+            assert s2_result.iloc[i] == expected.iloc[i]
 
 
 @pytest.mark.parametrize(
@@ -626,7 +865,7 @@ def test_left_binary_op(t, df, op, args):
     ids=operator.attrgetter('__name__'),
 )
 @pytest.mark.parametrize('argfunc', [lambda c: (1.0, c), lambda c: (c, 1.0)])
-def test_left_binary_op_gb(t, df, op, argfunc):
+def test_left_binary_op_gb(t, s2_t, df, op, argfunc):
     expr = t.groupby('dup_strings').aggregate(
         foo=op(*argfunc(t.float64_with_zeros)).sum()
     )
@@ -639,8 +878,20 @@ def test_left_binary_op_gb(t, df, op, argfunc):
     )
     tm.assert_frame_equal(result, expected)
 
+    # SingleStore tests:
+    s2_expr = s2_t.groupby('dup_strings').aggregate(
+        foo=op(*argfunc(s2_t.float64_with_zeros)).sum()
+    )
+    s2_result = s2_expr.execute()
+    for column in s2_result:
+        for i, val in enumerate(s2_result[column]):
+            if pd.isnull(val):
+                assert (expected[column].iloc[i] == np.inf or expected[column].iloc[i] == 0 or pd.isnull(expected[column].iloc[i]))
+            else:
+                assert s2_result[column].iloc[i] == expected[column].iloc[i]
 
-def test_where_series(t, df):
+
+def test_where_series(t, s2_t, df):
     col_expr = t['plain_int64']
     result = ibis.where(col_expr > col_expr.mean(), col_expr, 0.0).execute()
 
@@ -648,6 +899,11 @@ def test_where_series(t, df):
     expected = ser.where(ser > ser.mean(), other=0.0)
 
     tm.assert_series_equal(result, expected)
+
+    # SingleStore tests:
+    s2_col_expr = s2_t['plain_int64']
+    s2_result = ibis.where(s2_col_expr > s2_col_expr.mean(), s2_col_expr, 0.0).execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.reset_index(drop=True), check_dtype=False, check_names=False)
 
 
 @pytest.mark.parametrize(
@@ -657,11 +913,18 @@ def test_where_series(t, df):
         (False, lambda df: pd.Series(np.repeat(3.0, len(df)))),
     ],
 )
-def test_where_scalar(t, df, cond, expected_func):
+def test_where_scalar(t, s2_t, df, cond, expected_func):
     expr = ibis.where(cond, t['plain_int64'], 3.0)
     result = expr.execute()
     expected = expected_func(df)
     tm.assert_series_equal(result, expected)
+
+    # SingleStore tests:
+    s2_col_expr = s2_t['plain_int64']
+    cond = ibis.literal(cond, 'bool')
+    s2_expr = ibis.where(cond, s2_col_expr, 3.0)
+    s2_result = s2_expr.execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.reset_index(drop=True), check_dtype=False, check_names=False)
 
 
 def test_where_long(batting, batting_df):

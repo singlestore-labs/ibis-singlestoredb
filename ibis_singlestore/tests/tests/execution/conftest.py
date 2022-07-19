@@ -51,7 +51,7 @@ def df():
                 pd.date_range(
                     start='2017-01-02 01:02:03.234', periods=3
                 ).values
-            ).dt.tz_localize('America/New_York'),
+            ).dt.tz_localize('UTC'),
             'plain_datetimes_utc': pd.Series(
                 pd.date_range(
                     start='2017-01-02 01:02:03.234', periods=3
@@ -85,7 +85,7 @@ def df():
             )
             .dt.tz_localize('UTC')
             .astype(str),
-            'decimal': list(map(decimal.Decimal, ['1.0', '2', '3.234'])),
+            'decimal': list(map(decimal.Decimal, [1.0, 2, 3.234])),
             # 'array_of_float64': [
             #     np.array([1.0, 2.0]),
             #     np.array([3.0]),
