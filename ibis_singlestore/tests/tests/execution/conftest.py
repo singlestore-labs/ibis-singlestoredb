@@ -238,7 +238,33 @@ def pd_client(
         }
     )
 
-    
+s2_df_dict = dict({
+    ('plain_int64', dt.int64),
+    ('plain_strings', dt.string),
+    ('plain_float64', dt.float64),
+    ('plain_datetimes_naive', dt.timestamp),
+    ('plain_datetimes_ny', dt.timestamp),
+    ('plain_datetimes_utc', dt.timestamp),
+    ('dup_strings', dt.string),
+    ('dup_ints', dt.int64),
+    ('float64_as_strings', dt.string),
+    ('int64_as_strings', dt.string),
+    ('strings_with_space', dt.string),
+    ('int64_with_zeros', dt.int64),
+    ('float64_with_zeros', dt.float64),
+    ('float64_positive', dt.float64),
+    ('strings_with_nulls', dt.string),
+    ('datetime_strings_naive', dt.string),
+    ('datetime_strings_ny', dt.string),
+    ('datetime_strings_utc', dt.string),
+    ('decimal', dt.Decimal(4, 3)),
+})
+
+s2_t_schema = ibis.Schema(
+    s2_df_dict.keys(),
+    s2_df_dict.values()
+)
+
 @pytest.fixture(scope='module')
 def s2_client(
     df,
@@ -259,7 +285,7 @@ def s2_client(
             password=PASSWORD,
             database=DATABASE,
         )
-    con.create_table(name="df", expr=df, force=True)
+    con.create_table(name="df", expr=df, schema=s2_t_schema, force=True)
     con.create_table(name="df1", expr=df1, force=True)
     con.create_table(name="df2", expr=df2, force=True)
     con.create_table(name="df3", expr=df3, force=True)
@@ -293,20 +319,32 @@ t_schema = {
     'map_of_complex_values': dt.Map(dt.string, dt.Array(dt.int64)),
 }
 
-
 @pytest.fixture(scope='module')
 def t(pd_client):
     return pd_client.table('df', schema=t_schema)
 
 @pytest.fixture(scope='module')
 def s2_t(s2_client):
-    return s2_client.table('df', schema=t_schema)
+    return s2_client.table('df')
 
 @pytest.fixture(scope='module')
 def lahman(batting_df, awards_players_df):
     return Backend().connect(
         {'batting': batting_df, 'awards_players': awards_players_df}
     )
+
+@pytest.fixture(scope='module')
+def s2_lahman(batting_df, awards_players_df):
+    con = ibis.singlestore.connect(
+            host=HOST,
+            port=PORT,
+            user=USER,
+            password=PASSWORD,
+            database='lahman',
+        )
+    con.create_table(name="batting", expr=batting_df, force=True)
+    con.create_table(name="awards_players", expr=awards_players_df, force=True)
+    return con
 
 
 @pytest.fixture(scope='module')
@@ -347,6 +385,10 @@ def time_keyed_right(pd_client):
 @pytest.fixture(scope='module')
 def batting(lahman):
     return lahman.table('batting')
+
+@pytest.fixture(scope='module')
+def s2_batting(s2_lahman):
+    return s2_lahman.table('batting')
 
 
 @pytest.fixture(scope='module')

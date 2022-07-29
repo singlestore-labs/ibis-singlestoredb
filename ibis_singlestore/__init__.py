@@ -1,28 +1,154 @@
 """The SingleStore backend."""
-
 from __future__ import annotations
 
 import atexit
 import contextlib
 import warnings
-from typing import Any, Literal
-
-import sqlalchemy as sa
-import sqlalchemy.dialects.mysql as singlestore
-from sqlalchemy_singlestore.base import SingleStoreDialect
+from typing import Any
+from typing import Dict
+from typing import Literal
+from typing import Optional
 
 import ibis
+import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
-import ibis.common.exceptions as com
+import pandas as pd
+import sqlalchemy as sa
+import sqlalchemy.dialects.mysql as singlestore
 from ibis.backends.base.sql.alchemy import BaseAlchemyBackend
+from pandas.io.json import build_table_schema
+from singlestore.connection import build_params
+from sqlalchemy_singlestore.base import SingleStoreDialect
+
 from .compiler import SingleStoreCompiler
 from .datatypes import _type_from_cursor_info
 
-import pandas as pd
-from pandas.io.json import build_table_schema
-from singlestore.connection import build_params
+
+def _series_sqlalchemy_type(col: pd.Series, dtype: Optional[Dict[str, Any]] = None) -> Any:
+    """
+    Determine the SQLAlchemy type for a given pd.Series
+
+    Parameters
+    ----------
+    col: pd.Series
+        The pd.Series to inspect
+
+    dtype: Dict[str, Any], optional
+        Dictionary of data type overrides
+
+    Returns
+    -------
+    SQLAlchemy data type
+
+    """
+
+    if dtype is not None and col.name in dtype:
+        return dtype[col.name]
+
+    # NOTE: It's dangerous to import private libraries, but we want to match
+    #       their behavior as close as possible.
+    import pandas._libs.lib as lib
+
+    # Infer type of column, while ignoring missing values.
+    # Needed for inserting typed data containing NULLs, GH 8778.
+    col_type = lib.infer_dtype(col, skipna=True)
+
+    import sqlalchemy.types as st
+
+    if col_type == "datetime64" or col_type == "datetime":
+        # GH 9086: TIMESTAMP is the suggested type if the column contains
+        # timezone information
+        try:
+            if col.dt.tz is not None:
+                return st.TIMESTAMP(timezone=True)
+        except AttributeError:
+            # The column is actually a DatetimeIndex
+            # GH 26761 or an Index with date-like data e.g. 9999-01-01
+            if getattr(col, "tz", None) is not None:
+                return st.TIMESTAMP(timezone=True)
+        return st.DateTime
+
+    if col_type == "timedelta64":
+        warnings.warn(
+            "the 'timedelta' type is not supported, and will be "
+            "written as integer values (ns frequency) to the database.",
+            UserWarning,
+            stacklevel=8,
+        )
+        return st.BigInteger
+
+    elif col_type == "floating":
+        if col.dtype == "float32":
+            return st.Float(precision=23)
+        else:
+            return st.Float(precision=53)
+
+    elif col_type == "integer":
+        # GH35076 Map pandas integer to optimal SQLAlchemy integer type
+        if col.dtype.name.lower() in ("int8", "uint8", "int16"):
+            return st.SmallInteger
+        elif col.dtype.name.lower() in ("uint16", "int32"):
+            return st.Integer
+        elif col.dtype.name.lower() == "uint64":
+            raise ValueError("Unsigned 64 bit integer datatype is not supported")
+        else:
+            return st.BigInteger
+
+    elif col_type == "boolean":
+        return st.Boolean
+
+    elif col_type == "date":
+        return st.Date
+
+    elif col_type == "time":
+        return st.Time
+
+    elif col_type == "complex":
+        raise ValueError("Complex datatypes not supported")
+
+    elif col_type == "decimal":
+        return st.DECIMAL(60, 30)
+
+    return st.Text
+
+def _ibis_schema_to_sqlalchemy_dtypes(df_schema: ibis.Schema):
+    """
+    Convert an Ibis Schema to a dict of SQLAlchemy types.
+    
+    Parameters
+    ----------
+    schema: ibis.Schema
+        Schema object to convert
+        
+    Returns
+    -------
+    Dict[str, Any]
+    
+    """
+    from ibis.backends.base.sql.alchemy import datatypes
+    return dict(zip(df_schema.names, [datatypes.to_sqla_type(x) for x in df_schema.types]))
+
+def _infer_dtypes(frame: pd.DataFrame, dtype: Optional[Dict[str, Any]] = None):
+    """
+    Infer the SQLAlchemy dtypes for a DataFrame.
+
+    Parameters
+    ----------
+    frame : pd.DataFrame
+        The DataFrame to inspect
+
+    Returns
+    -------
+    Dict[str, sa.type]
+
+    """
+    return dict([
+        (str(frame.columns[i]), _series_sqlalchemy_type(frame.iloc[:, i], dtype))
+        for i in range(len(frame.columns))
+    ])
+
 
 class Backend(BaseAlchemyBackend):
     name = 'singlestore'
@@ -59,46 +185,6 @@ class Backend(BaseAlchemyBackend):
                 echo=kwargs.get('echo', False), future=kwargs.get('future', False),
             ),
         )
-    
-    def table(
-        self,
-        name: str,
-        database: str | None = None,
-        schema: str | None = None,
-    ) -> ir.TableExpr:
-        """Create a table expression from a table in the database.
-
-        Parameters
-        ----------
-        name
-            Table name
-        database
-            The database the table resides in
-        schema
-            The schema inside `database` where the table resides.
-
-            !!! warning "`schema` refers to database organization"
-
-                The `schema` parameter does **not** refer to the column names
-                and types of `table`.
-
-        Returns
-        -------
-        TableExpr
-            Table expression
-        """
-        if database is not None and database != self.current_database:
-            return self.database(database=database).table(
-                name=name,
-                database=database,
-                schema=schema,
-            )
-        sqla_table = self._get_sqla_table(
-            name,
-            database=database,
-            schema=self._current_schema,
-        )
-        return self._sqla_table_to_expr(sqla_table)
 
     def create_table(
         self,
@@ -106,7 +192,7 @@ class Backend(BaseAlchemyBackend):
         expr: pd.DataFrame | ir.TableExpr | None = None,
         schema: sch.Schema | None = None,
         database: str | None = None,
-        force: bool = False
+        force: bool = False,
     ) -> None:
         """Create a new table.
         Parameters
@@ -114,7 +200,7 @@ class Backend(BaseAlchemyBackend):
         name
             Name of the new table.
         expr
-            An Ibis table expression or pandas table that will be used to
+            An Ibis table expression or pandas DataFrame that will be used to
             extract the schema and the data of the new table. If not provided,
             `schema` must be given.
         schema
@@ -123,46 +209,84 @@ class Backend(BaseAlchemyBackend):
         database
             Name of the database where the table will be created, if not the
             default.
+        force
+            Check whether a table exists before creating it
         """
+        if database == self.current_database:
+            # avoid fully qualified name
+            database = None
+
+        if database is not None:
+            raise NotImplementedError(
+                'Creating tables from a different database is not yet '
+                'implemented',
+            )
+
         if expr is None and schema is None:
             raise ValueError('You must pass either an expression or a schema')
 
-        if isinstance(expr, pd.DataFrame): 
+        if isinstance(expr, pd.DataFrame):
+            if schema is not None:
+                pd_schema_names = ibis.pandas.connect({name: expr}).table(name).schema().names
+                if not sorted(pd_schema_names) == sorted(sch.schema(schema).names):
+                    raise TypeError(
+                        'Expression schema is not equal to passed schema. '
+                        'Try passing the expression without the schema',
+                    )
+
+            # TODO: Should this be done in `insert` as well?
+            expr = expr.copy()
             for column in expr:
                 try:
                     expr[column].dt.tz_localize('UTC')
                 except (AttributeError, TypeError):
                     pass
-            expr_schema = ibis.pandas.connect({name : expr}).table(name).schema()
-        elif isinstance(expr, ir.TableExpr):
-            expr_schema = expr.schema()
-            expr = expr.execute()
 
-        if expr is not None and schema is not None:
-            if not expr_schema.equals(schema):
-                raise TypeError(
-                    'Expression schema is not equal to passed schema. '
-                    'Try passing the expression without the schema'
-                )
+            if schema is not None:
+                dtype = _ibis_schema_to_sqlalchemy_dtypes(schema)
+            else:
+                dtype = _infer_dtypes(expr)
 
-        self._schemas[self._fully_qualified_name(name, database)] = expr_schema
-        self._table_from_schema(
-            name, expr_schema, database=database or self.current_database
-        )
-
-        expr.to_sql(
+            expr.to_sql(
                 name,
                 self.con,
                 index=False,
-                if_exists='replace' if force else 'append',
-                schema=self._current_schema,
+                if_exists='replace' if force else 'fail',
+                dtype=dtype,
             )
+
+        elif isinstance(expr, ir.TableExpr) or schema is not None:
+            if expr is not None and schema is not None:
+                if not sorted(expr.schema().names) == sorted(sch.schema(schema).names):
+                    raise TypeError(
+                        'Expression schema is not equal to passed schema. '
+                        'Try passing the expression without the schema',
+                    )
+
+            if schema is None:
+                schema = expr.schema()
+
+            self._schemas[self._fully_qualified_name(name, database)] = schema
+            t = self._table_from_schema(
+                name, schema, database=database or self.current_database,
+            )
+
+            with self.begin() as bind:
+                t.create(bind=bind, checkfirst=force)
+                if expr is not None:
+                    bind.execute(
+                        t.insert().from_select(list(expr.columns), expr.compile()),
+                    )
+
+        else:
+            raise TypeError('`expr` and/or `schema` are not an expected type: {}'.format(
+                type(expr).__name__, type(schema).__name__))
 
     @contextlib.contextmanager
     def begin(self):
         with super().begin() as bind:
             previous_timezone = bind.execute(
-                'SELECT @@session.time_zone'
+                'SELECT @@session.time_zone',
             ).scalar()
             try:
                 bind.execute("SET @@session.time_zone = 'UTC'")
@@ -177,7 +301,7 @@ class Backend(BaseAlchemyBackend):
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer the schema of `query`."""
-        result = self.con.execute(f"SELECT * FROM ({query}) _ LIMIT 0")
+        result = self.con.execute(f'SELECT * FROM ({query}) _ LIMIT 0')
         cursor = result.cursor
         fields = [
             (descr[0], _type_from_cursor_info(descr))
@@ -190,10 +314,10 @@ class Backend(BaseAlchemyBackend):
         name: str,
         definition: sa.sql.compiler.Compiled,
     ) -> str:
-        return f"CREATE OR REPLACE VIEW {name} AS {definition}"
+        return f'CREATE OR REPLACE VIEW {name} AS {definition}'
 
     def _register_temp_view_cleanup(self, name: str, raw_name: str) -> None:
-        query = f"DROP VIEW IF EXISTS {name}"
+        query = f'DROP VIEW IF EXISTS {name}'
 
         def drop(self, raw_name: str, query: str):
             self.con.execute(query)
