@@ -890,19 +890,19 @@ def test_left_binary_op_gb(t, s2_t, df, op, argfunc):
                 assert s2_result[column].iloc[i] == expected[column].iloc[i]
 
 
-# def test_where_series(t, s2_t, df):
-#     col_expr = t['plain_int64']
-#     result = ibis.where(col_expr > col_expr.mean(), col_expr, 0.0).execute()
+def test_where_series(t, s2_t, df):
+    col_expr = t['plain_int64']
+    result = ibis.where(col_expr > col_expr.mean(), col_expr, 0.0).execute()
 
-#     ser = df['plain_int64']
-#     expected = ser.where(ser > ser.mean(), other=0.0)
+    ser = df['plain_int64']
+    expected = ser.where(ser > ser.mean(), other=0.0)
 
-#     tm.assert_series_equal(result, expected)
+    tm.assert_series_equal(result, expected)
 
-#     # SingleStore tests:
-#     s2_col_expr = s2_t['plain_int64']
-#     s2_result = ibis.where(s2_col_expr > s2_col_expr.mean(), s2_col_expr, 0.0).execute()
-#     tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.reset_index(drop=True), check_dtype=False, check_names=False)
+    # SingleStore tests:
+    s2_col_expr = s2_t['plain_int64']
+    s2_result = ibis.where(s2_col_expr > s2_col_expr.mean(), s2_col_expr, 0.0).execute()
+    tm.assert_series_equal(s2_result.sort_values().reset_index(drop=True), expected.reset_index(drop=True), check_dtype=False, check_names=False)
 
 
 # @pytest.mark.parametrize(
@@ -1269,7 +1269,14 @@ def test_difference(pd_client, s2_client, df1, intersect_df2):
     )
     expected = merged[merged["_merge"] != "both"].drop("_merge", axis=1)
     tm.assert_frame_equal(result, expected)
-
+    
+    # SingleStore tests:
+    s2_t1 = s2_client.table('df1')
+    s2_t2 = s2_client.table('intersect_df2')
+    s2_expr = s2_t1.difference(s2_t2)
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result.sort_values(by='key').reset_index(drop=True),
+                          expected.sort_values(by='key').reset_index(drop=True))
 
 @pytest.mark.parametrize(
     "distinct",
@@ -1287,10 +1294,17 @@ def test_difference(pd_client, s2_client, df1, intersect_df2):
         False,
     ],
 )
-def test_union_with_list_types(t, df, distinct):
+def test_union_with_list_types(t, s2_t, df, distinct):
     expr = t.union(t, distinct=distinct)
     result = expr.execute()
     expected = (
         df if distinct else pd.concat([df, df], axis=0, ignore_index=True)
     )
     tm.assert_frame_equal(result, expected)
+    
+    # SingleStore tests:
+    s2_expr = s2_t.union(s2_t, distinct=distinct)
+    s2_result = s2_expr.execute()
+    tm.assert_frame_equal(s2_result.sort_values(by='plain_int64').reset_index(drop=True),
+                          expected.sort_values(by='plain_int64').reset_index(drop=True),
+                          check_dtype=False)
