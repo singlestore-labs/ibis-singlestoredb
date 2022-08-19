@@ -289,6 +289,8 @@ def s2_client(
     con.create_table(name="df1", expr=df1, force=True)
     con.create_table(name="df2", expr=df2, force=True)
     con.create_table(name="df3", expr=df3, force=True)
+    con.create_table(name="left", expr=df1, force=True)
+    con.create_table(name="right", expr=df2, force=True)
     con.create_table(name="time_df1", expr=time_df1, force=True)
     con.create_table(name="time_df2", expr=time_df2, force=True)
     con.create_table(name="time_df3", expr=time_df3, force=True)
@@ -353,8 +355,18 @@ def left(pd_client):
 
 
 @pytest.fixture(scope='module')
+def s2_left(s2_client):
+    return s2_client.table('left')
+
+
+@pytest.fixture(scope='module')
 def right(pd_client):
     return pd_client.table('right')
+
+
+@pytest.fixture(scope='module')
+def s2_right(s2_client):
+    return s2_client.table('right')
 
 
 @pytest.fixture(scope='module')

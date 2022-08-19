@@ -20,6 +20,8 @@ from ibis.backends.base.sql.alchemy import sqlalchemy_window_functions_registry
 from ibis.backends.base.sql.alchemy import unary
 from ibis.backends.base.sql.alchemy import variance_reduction
 
+import functions as fn
+
 operation_registry = sqlalchemy_operation_registry.copy()
 operation_registry.update(sqlalchemy_window_functions_registry)
 
@@ -224,6 +226,20 @@ def _day_of_week_name(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     (arg,) = expr.op().args
     return sa.func.dayname(t.translate(arg))
 
+def _strcmp(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    left, right = expr.op().args
+    left = t.translate(left)
+    right = t.translate(right)
+
+    return sa.func.strcmp(left, right)
+
+def _power_of(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    left, right = expr.op().args
+    left = t.translate(left)
+    right = t.translate(right)
+
+    return sa.func.power_of(left, right)
+
 operation_registry.update(
     {
         ops.Literal: _literal,
@@ -275,5 +291,7 @@ operation_registry.update(
         ops.DayOfWeekName: _day_of_week_name,
         ops.HLLCardinality: reduction(
                                 lambda arg: sa.func.count(arg.distinct())),
+        fn.StrCmp: _strcmp,
+        fn.PowerOf: _power_of,
     },
 )

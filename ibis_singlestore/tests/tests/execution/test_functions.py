@@ -222,68 +222,6 @@ def test_arraylike_functions_transform_errors(t, s2_t, df, ibis_func, exc):
 #     assert result == expected
 
 
-@pytest.mark.parametrize(
-    (
-        'left',
-        'right',
-        'expected_value',
-        'expected_type',
-        'left_dtype',
-        'right_dtype',
-    ),
-    [
-        (True, 1, True, bool, dt.boolean, dt.int64),
-        (True, 1.0, True, bool, dt.boolean, dt.float64),
-        (True, True, True, bool, dt.boolean, dt.boolean),
-        (False, 0, False, bool, dt.boolean, dt.int64),
-        (False, 0.0, False, bool, dt.boolean, dt.float64),
-        (False, False, False, bool, dt.boolean, dt.boolean),
-        (1, True, 1, int, dt.int64, dt.boolean),
-        (1, 1.0, 1, int, dt.int64, dt.float64),
-        (1, 1, 1, int, dt.int64, dt.int64),
-        (0, False, 0, int, dt.int64, dt.boolean),
-        (0, 0.0, 0, int, dt.int64, dt.float64),
-        (0, 0, 0, int, dt.int64, dt.int64),
-        (1.0, True, 1.0, float, dt.float64, dt.boolean),
-        (1.0, 1, 1.0, float, dt.float64, dt.int64),
-        (1.0, 1.0, 1.0, float, dt.float64, dt.float64),
-        (0.0, False, 0.0, float, dt.float64, dt.boolean),
-        (0.0, 0, 0.0, float, dt.float64, dt.int64),
-        (0.0, 0.0, 0.0, float, dt.float64, dt.float64),
-    ],
-)
-def test_execute_with_same_hash_value_in_scope(
-    s2_client, left, right, expected_value, expected_type, left_dtype, right_dtype
-):
-    @udf.elementwise([left_dtype, right_dtype], left_dtype)
-    def my_func(x, y):
-        return x
-
-    df = pd.DataFrame({"left": [left], "right": [right]})
-    table = ibis.pandas.from_dataframe(df)
-
-    expr = my_func(table.left, table.right)
-    result = execute(expr)
-    assert isinstance(result, pd.Series)
-
-    result = result.tolist()
-    assert result == [expected_value]
-    assert type(result[0]) is expected_type
-
-    # SingleStore tests:
-    df = pd.DataFrame({"left": [left], "right": [right]})
-    s2_client.create_table(name="new_df", expr=df, force=True)
-    s2_table = s2_client.table("new_df")
-
-    s2_expr = my_func(s2_table.left, s2_table.right)
-    s2_result = execute(s2_expr)
-    assert isinstance(s2_result, pd.Series)
-
-    s2_result = s2_result.tolist()
-    assert s2_result == [expected_value]
-    assert type(s2_result[0]) is expected_type
-
-
 def test_ifelse_returning_bool():
     one = ibis.literal(1)
     two = ibis.literal(2)
@@ -292,30 +230,3 @@ def test_ifelse_returning_bool():
     expr = ibis.ifelse(one + one == two, true, false)
     result = execute(expr)
     assert result is True
-
-
-@pytest.mark.parametrize(
-    ('dtype', 'value'),
-    [
-        pytest.param(dt.float64, 1, id='float_int'),
-        pytest.param(dt.float64, True, id='float_bool'),
-        pytest.param(dt.int64, 1.0, id='int_float'),
-        pytest.param(dt.int64, True, id='int_bool'),
-        pytest.param(dt.boolean, 1.0, id='bool_float'),
-        pytest.param(dt.boolean, 1, id='bool_int'),
-    ],
-)
-def test_signature_does_not_match_input_type(dtype, value):
-    @udf.elementwise([dtype], dtype)
-    def func(x):
-        return x
-
-    df = pd.DataFrame({"col": [value]})
-    table = ibis.pandas.from_dataframe(df)
-
-    result = execute(table.col)
-    assert isinstance(result, pd.Series)
-
-    result = result.tolist()
-    assert result == [value]
-    assert type(result[0]) is type(value)
