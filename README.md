@@ -1,4 +1,4 @@
-# <img src="resources/singlestore-logo.png" height="60" valign="middle"/> Ibis backend for SingleStore
+# <img src="resources/singlestore-logo.png" height="60" valign="middle"/> Ibis backend for SingleStoreDB
 
 This project contains an [Ibis](https://ibis-project.org) backend
 for the SingleStore database. This allows you to access and manipulate your
@@ -6,7 +6,7 @@ data using a DataFrame-like API.
 
 ## Install
 
-This package can be install from PyPI using `pip`:
+This package can be installed from PyPI using `pip`:
 ```
 pip install ibis-singlestore
 ```
@@ -18,14 +18,14 @@ conda install -c singlestore ibis-singlestore
 
 ## Usage
 
-Connections to the SingleStore database are made using URLs that specify
+Connections to the SingleStoreDB database are made using URLs that specify
 the connection driver package, server hostname, server port, and user
 credentials.
 ```
 import ibis
 
 # Connect using the default connector
-conn = ibis.singlestore.connect('user:password@host:3306/db_name')
+conn = ibis.singlestoredb.connect('user:password@host:3306/db_name')
 
 # Get an Ibis DataFrame object that points to the 'employees' table
 employees = conn.table('employees')
@@ -40,7 +40,7 @@ res.execute()
 Connecting to the HTTP API is done as follows:
 ```
 # Use the HTTP API connector
-conn = ibis.singlestore.connect('http://user:password@host:8080/db_name')
+conn = ibis.singlestoredb.connect('http://user:password@host:8080/db_name')
 ```
 
 ## License

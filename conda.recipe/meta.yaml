@@ -1,15 +1,15 @@
+{% set data = load_setup_py_data() %}
 
 package:
-    name: ibis-singlestore
-    version: 0.1.0
+    name: ibis-singlestoredb
+    version: {{ data.get('version') }}
 
 source:
-#   url: https://github.com/singlestore-labs/ibis-singlestore/releases/download/v0.1.0/singlestore-python-0.1.0.tar.gz
     path: ..
 
 build:
     noarch: python
-    number: 0
+    number: {{ environ.get('PACKAGE_BUILD_NUMBER', '0') }}
     script: python -m pip install --no-deps --ignore-installed .
 
 requirements:
@@ -17,23 +17,25 @@ requirements:
         - python {{ python }}
         - pip
     run:
-        - singlestore
-        - ibis
+        - singlestoredb
+        - sqlalchemy-singlestoerdb
+        - ibis-framework
 
 test:
     imports:
-        - singlestore
+        - ibis_singlestore
     requires:
         - coverage
         - nose2
         - pandas
+        - pytest
     commands:
-        - nose2 -v singlestore.tests.test_basics
+        - nose2 -v ibis_singlestore.tests.test_basics
 
 about:
     home: https://github.com/singlestore-labs/ibis-singlestore
     license: Apache 2.0
     license_file: ../LICENSE
-    summary: SingleStore SQLAlchemy Dialect
-    doc_url: https://singlestore.github.io/ibis-singlestore/index.html
-    dev_url: https://github.com/singlestore/ibis-singlestore
+    summary: SingleStoreDB SQLAlchemy Dialect
+    doc_url: https://singlestore.github.io/ibis-singlestoredb/index.html
+    dev_url: https://github.com/singlestore/ibis-singlestoredb
