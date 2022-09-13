@@ -18,7 +18,7 @@ requirements:
         - pip
     run:
         - singlestoredb
-        - sqlalchemy-singlestoerdb
+        - sqlalchemy-singlestoredb
         - ibis-framework
 
 test:
@@ -30,7 +30,7 @@ test:
         - pandas
         - pytest
     commands:
-        - nose2 -v ibis_singlestore.tests.test_basics
+        - nose2 -v ibis_singlestore.tests
 
 about:
     home: https://github.com/singlestore-labs/ibis-singlestore
