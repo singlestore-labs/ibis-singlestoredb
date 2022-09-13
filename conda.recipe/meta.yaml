@@ -26,11 +26,11 @@ test:
         - ibis_singlestore
     requires:
         - coverage
-        - nose2
         - pandas
         - pytest
+        - pytest-cov
     commands:
-        - nose2 -v ibis_singlestore.tests
+        - pytest -v ibis_singlestoredb.tests
 
 about:
     home: https://github.com/singlestore-labs/ibis-singlestore
