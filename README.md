@@ -8,12 +8,12 @@ data using a DataFrame-like API.
 
 This package can be installed from PyPI using `pip`:
 ```
-pip install ibis-singlestore
+pip install ibis-singlestoredb
 ```
 
 If you use Anaconda, you can install as follows:
 ```
-conda install -c singlestore ibis-singlestore
+conda install -c singlestore ibis-singlestoredb
 ```
 
 ## Usage
