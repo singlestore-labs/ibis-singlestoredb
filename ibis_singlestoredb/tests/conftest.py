@@ -74,15 +74,12 @@ def _random_identifier(suffix):
 @pytest.fixture(scope='session')
 def con():
     sql_file = os.path.join(os.path.dirname(__file__), 'test.sql')
-    DATABASE, dbexisted = utils.load_sql(sql_file)
+    dbname, dbexisted = utils.load_sql(sql_file)
 
-    utils.create_user('ibis', 'ibis', DATABASE)
-
-    yield ibis.singlestoredb.connect(database=DATABASE)
+    yield ibis.singlestoredb.connect(database=dbname)
 
     if not dbexisted:
-        utils.drop_user('ibis')
-        utils.drop_database(DATABASE)
+        utils.drop_database(dbname)
 
 
 @pytest.fixture(scope='module')

@@ -34,9 +34,6 @@ def _type_from_cursor_info(descr: Tuple[Any, ...], field: Any) -> dt.DataType:
 
     typ = _type_mapping[typename]
 
-    import sys
-    print('FLAGS', descr[0], field.flags, file=sys.stderr)
-
     if typename in ('DECIMAL', 'NEWDECIMAL'):
         precision = _decimal_length_to_precision(
             length=field_length,

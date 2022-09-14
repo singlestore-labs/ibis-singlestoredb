@@ -237,22 +237,25 @@ class Backend(BaseAlchemyBackend):
             ),
         )
 
-    @contextlib.contextmanager
-    def begin(self) -> Generator[Any, Any, Any]:
-        with super().begin() as bind:
-            previous_timezone = bind.execute(
-                'SELECT @@session.time_zone',
-            ).scalar()
-            try:
-                bind.execute("SET @@session.time_zone = 'UTC'")
-            except Exception as e:
-                warnings.warn(f"Couldn't set singlestore timezone: {str(e)}")
+#   @contextlib.contextmanager
+#   def begin(self) -> Generator[Any, Any, Any]:
+#       with super().begin() as bind:
+#           previous_timezone = bind.execute(
+#               'SELECT @@session.time_zone',
+#           ).scalar()
+#           unset_timezone = False
+#           try:
+#               bind.execute("SET @@session.time_zone = 'UTC'")
+#               unset_timezone = True
+#           except Exception as e:
+#               warnings.warn(f"Couldn't set singlestore timezone: {str(e)}")
 
-            try:
-                yield bind
-            finally:
-                query = "SET @@session.time_zone = '{}'"
-                bind.execute(query.format(previous_timezone))
+#           try:
+#               yield bind
+#           finally:
+#               if unset_timezone:
+#                   query = "SET @@session.time_zone = '{}'"
+#                   bind.execute(query.format(previous_timezone))
 
     def create_table(
         self,
@@ -400,6 +403,11 @@ def singlestoredb_tinyint(satype: Any, nullable: bool = True) -> dt.Int8:
     return dt.Int8(nullable=nullable)
 
 
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.YEAR)
+def singlestoredb_year(dialect: Any, satype: Any, nullable: bool = True) -> dt.Int16:
+    return dt.Int16(nullable=nullable)
+
+
 @dt.dtype.register(singlestoredb.BLOB)
 def singlestoredb_blob(satype: Any, nullable: bool = True) -> dt.Binary:
     return dt.Binary(nullable=nullable)
@@ -408,3 +416,41 @@ def singlestoredb_blob(satype: Any, nullable: bool = True) -> dt.Binary:
 @dt.dtype.register(SingleStoreDBDialect, singlestoredb.BIT)
 def singlestoredb_bit(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
     return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.BINARY)
+def singlestoredb_binary(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
+    return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.VARBINARY)
+def singlestoredb_varbinary(
+    dialect: Any,
+    satype: Any,
+    nullable: bool = True,
+) -> dt.Binary:
+    return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.LONGBLOB)
+def singlestoredb_longblob(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
+    return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.MEDIUMBLOB)
+def singlestoredb_mediumblob(
+    dialect: Any,
+    satype: Any,
+    nullable: bool = True,
+) -> dt.Binary:
+    return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.TINYBLOB)
+def singlestoredb_tinyblob(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
+    return dt.Binary(nullable=nullable)
+
+
+@dt.dtype.register(SingleStoreDBDialect, singlestoredb.JSON)
+def singlestoredb_json(dialect: Any, satype: Any, nullable: bool = True) -> dt.JSON:
+    return dt.JSON(nullable=nullable)
