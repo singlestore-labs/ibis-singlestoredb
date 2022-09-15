@@ -20,8 +20,6 @@ from ibis.backends.base.sql.alchemy import sqlalchemy_window_functions_registry
 from ibis.backends.base.sql.alchemy import unary
 from ibis.backends.base.sql.alchemy import variance_reduction
 
-from . import functions as fn
-
 operation_registry = sqlalchemy_operation_registry.copy()
 operation_registry.update(sqlalchemy_window_functions_registry)
 
@@ -39,18 +37,6 @@ def _substr(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     else:
         sa_length = t.translate(length)
         return f(sa_arg, sa_start + 1, sa_length)
-
-
-def _string_find(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, substr, start, _ = expr.op().args
-
-    if start is not None:
-        raise NotImplementedError
-
-    sa_arg = t.translate(arg)
-    sa_substr = t.translate(substr)
-
-    return sa.func.locate(sa_arg, sa_substr) - 1
 
 
 def _capitalize(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
@@ -228,20 +214,24 @@ def _day_of_week_name(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.func.dayname(t.translate(arg))
 
 
-def _strcmp(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    left, right = expr.op().args
-    left = t.translate(left)
-    right = t.translate(right)
+def _string_find(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    op = expr.op()
 
-    return sa.func.strcmp(left, right)
+    if op.end is not None:
+        raise NotImplementedError('`end` not yet implemented')
+
+    if op.start is not None:
+        return sa.func.locate(
+            t.translate(op.substr),
+            t.translate(op.arg),
+            t.translate(op.start),
+        ) - 1
+
+    return sa.func.locate(t.translate(op.substr), t.translate(op.arg)) - 1
 
 
-def _power_of(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    left, right = expr.op().args
-    left = t.translate(left)
-    right = t.translate(right)
-
-    return sa.func.power_of(left, right)
+def _string_contains(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    return _string_find(t, expr) >= 0
 
 
 operation_registry.update(
@@ -250,6 +240,7 @@ operation_registry.update(
         # strings
         ops.Substring: _substr,
         ops.StringFind: _string_find,
+        ops.StringContains: _string_contains,
         ops.Capitalize: _capitalize,
         ops.RegexSearch: infix_op('REGEXP'),
         ops.Cast: _cast,
@@ -297,7 +288,5 @@ operation_registry.update(
         ops.HLLCardinality: reduction(
             lambda arg: sa.func.count(arg.distinct()),
         ),
-        fn.StrCmp: _strcmp,
-        fn.PowerOf: _power_of,
     },
 )

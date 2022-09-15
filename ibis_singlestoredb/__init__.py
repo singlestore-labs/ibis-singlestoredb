@@ -24,6 +24,7 @@ from pandas.io.json import build_table_schema
 from singlestoredb.connection import build_params
 from sqlalchemy_singlestoredb.base import SingleStoreDBDialect
 
+from . import functions as fn
 from .compiler import SingleStoreDBCompiler
 from .datatypes import _type_from_cursor_info
 
@@ -205,6 +206,11 @@ class Backend(BaseAlchemyBackend):
         # TODO: escape name
         self.raw_sql(f'CREATE DATABASE IF NOT EXISTS {name}')
 
+    def sync_functions(self) -> None:
+        """Synchronize client APIs with server functions."""
+        for row in self.raw_sql('SHOW FUNCTIONS'):
+            fn.build_function(self, row[0])
+
     def do_connect(self, *args: str, **kwargs: Any) -> None:
         """Connect to a SingleStoreDB database."""
         if args:
@@ -236,6 +242,8 @@ class Backend(BaseAlchemyBackend):
                 echo=kwargs.get('echo', False), future=kwargs.get('future', False),
             ),
         )
+
+        self.sync_functions()
 
 #   @contextlib.contextmanager
 #   def begin(self) -> Generator[Any, Any, Any]:
@@ -357,6 +365,8 @@ class Backend(BaseAlchemyBackend):
                     type(expr).__name__, type(schema).__name__,
                 ),
             )
+
+        return self.table(name)
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer the schema of `query`."""
