@@ -84,6 +84,11 @@ SINGLESTOREDB_TYPES = [
     ],
 )
 def test_get_schema_from_query(con, singlestoredb_type, expected_type):
+    if 'unsigned' in singlestoredb_type and \
+            ('http://' in str(con.con.url) or 'https://' in str(con.con.url)):
+        pytest.skip('HTTP API does not surface unsigned int information')
+        return
+
     raw_name = ibis.util.guid()
     name = con.con.dialect.identifier_preparer.quote_identifier(raw_name)
     # temporary tables get cleaned up by the db when the session ends, so we

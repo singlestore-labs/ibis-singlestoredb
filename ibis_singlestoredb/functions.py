@@ -19,10 +19,6 @@ import ibis.expr.types as types
 import sqlalchemy as sa
 
 
-def quote_identifier(value: str) -> str:
-    return f'`{value}`'
-
-
 _db2py_type: Dict[str, str] = {
     'int64': 'int',
     'bigint': 'int',
@@ -52,6 +48,7 @@ def _get_py_type(typ: Optional[str]) -> str:
 
 
 def build_function(conn: Any, name: str) -> Callable[..., Any]:
+    quote_identifier = conn.con.dialect.identifier_preparer.quote_identifier
     db = quote_identifier(conn.database_name)
     qname = quote_identifier(name)
     proto = conn.raw_sql(f'show create function {db}.{qname}').fetchall()[0][2]
