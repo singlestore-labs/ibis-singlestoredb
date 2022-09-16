@@ -29,6 +29,9 @@ from .compiler import SingleStoreDBCompiler
 from .datatypes import _type_from_cursor_info
 
 
+__version__ = '0.1.0'
+
+
 def _series_sqlalchemy_type(
     col: pd.Series,
     dtype: Optional[Dict[str, Any]] = None,

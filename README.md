@@ -11,11 +11,6 @@ This package can be installed from PyPI using `pip`:
 pip install ibis-singlestoredb
 ```
 
-If you use Anaconda, you can install as follows:
-```
-conda install -c singlestore ibis-singlestoredb
-```
-
 ## Usage
 
 Connections to the SingleStoreDB database are made using URLs that specify
