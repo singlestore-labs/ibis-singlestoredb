@@ -2,6 +2,7 @@
 """SingleStoreDB function registry."""
 from __future__ import annotations
 
+import operator
 from typing import Callable
 
 import ibis
@@ -13,12 +14,9 @@ import ibis.expr.types as ir
 import pandas as pd
 import sqlalchemy as sa
 from ibis.backends.base.sql.alchemy import fixed_arity
-from ibis.backends.base.sql.alchemy import infix_op
-from ibis.backends.base.sql.alchemy import reduction
 from ibis.backends.base.sql.alchemy import sqlalchemy_operation_registry
 from ibis.backends.base.sql.alchemy import sqlalchemy_window_functions_registry
 from ibis.backends.base.sql.alchemy import unary
-from ibis.backends.base.sql.alchemy import variance_reduction
 
 operation_registry = sqlalchemy_operation_registry.copy()
 operation_registry.update(sqlalchemy_window_functions_registry)
@@ -242,7 +240,7 @@ operation_registry.update(
         ops.StringFind: _string_find,
         ops.StringContains: _string_contains,
         ops.Capitalize: _capitalize,
-        ops.RegexSearch: infix_op('REGEXP'),
+        ops.RegexSearch: fixed_arity(lambda x, y: x.op('REGEXP')(y), 2),
         ops.Cast: _cast,
         # math
         ops.Log: _log,
@@ -252,11 +250,11 @@ operation_registry.update(
         ops.RandomScalar: _random,
         # dates and times
         ops.Date: unary(sa.func.date),
-        ops.DateAdd: infix_op('+'),
-        ops.DateSub: infix_op('-'),
+        ops.DateAdd: fixed_arity(operator.add, 2),
+        ops.DateSub: fixed_arity(operator.sub, 2),
         ops.DateDiff: fixed_arity(sa.func.datediff, 2),
-        ops.TimestampAdd: infix_op('+'),
-        ops.TimestampSub: infix_op('-'),
+        ops.TimestampAdd: fixed_arity(operator.add, 2),
+        ops.TimestampSub: fixed_arity(operator.sub, 2),
         ops.TimestampDiff: _timestamp_diff,
         ops.DateTruncate: _truncate,
         ops.TimestampTruncate: _truncate,
@@ -274,19 +272,19 @@ operation_registry.update(
         ops.ExtractSecond: _extract('second'),
         ops.ExtractMillisecond: _extract('millisecond'),
         # reductions
-        ops.BitAnd: reduction(sa.func.bit_and),
-        ops.BitOr: reduction(sa.func.bit_or),
-        ops.BitXor: reduction(sa.func.bit_xor),
-        ops.Variance: variance_reduction('var'),
-        ops.StandardDev: variance_reduction('stddev'),
-        ops.IdenticalTo: _identical_to,
-        ops.TimestampNow: fixed_arity(sa.func.now, 0),
+        #       ops.BitAnd: reduction(sa.func.bit_and),
+        #       ops.BitOr: reduction(sa.func.bit_or),
+        #       ops.BitXor: reduction(sa.func.bit_xor),
+        #       ops.Variance: variance_reduction('var'),
+        #       ops.StandardDev: variance_reduction('stddev'),
+        #       ops.IdenticalTo: _identical_to,
+        #       ops.TimestampNow: fixed_arity(sa.func.now, 0),
         # others
         ops.GroupConcat: _group_concat,
         ops.DayOfWeekIndex: _day_of_week_index,
         ops.DayOfWeekName: _day_of_week_name,
-        ops.HLLCardinality: reduction(
-            lambda arg: sa.func.count(arg.distinct()),
-        ),
+        #       ops.HLLCardinality: reduction(
+        #           lambda arg: sa.func.count(arg.distinct()),
+        #       ),
     },
 )

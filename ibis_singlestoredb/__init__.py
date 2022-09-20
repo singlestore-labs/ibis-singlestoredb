@@ -32,143 +32,6 @@ from .datatypes import _type_from_cursor_info
 __version__ = '0.1.0'
 
 
-def _series_sqlalchemy_type(
-    col: pd.Series,
-    dtype: Optional[Dict[str, Any]] = None,
-) -> Any:
-    """
-    Determine the SQLAlchemy type for a given pd.Series
-
-    Parameters
-    ----------
-    col: pd.Series
-        The pd.Series to inspect
-
-    dtype: Dict[str, Any], optional
-        Dictionary of data type overrides
-
-    Returns
-    -------
-    SQLAlchemy data type
-
-    """
-
-    if dtype is not None and col.name in dtype:
-        return dtype[col.name]
-
-    # NOTE: It's dangerous to import private libraries, but we want to match
-    #       their behavior as close as possible.
-    import pandas._libs.lib as lib
-
-    # Infer type of column, while ignoring missing values.
-    # Needed for inserting typed data containing NULLs, GH 8778.
-    col_type = lib.infer_dtype(col, skipna=True)
-
-    import sqlalchemy.types as st
-
-    if col_type == 'datetime64' or col_type == 'datetime':
-        # GH 9086: TIMESTAMP is the suggested type if the column contains
-        # timezone information
-        try:
-            if col.dt.tz is not None:
-                return st.TIMESTAMP(timezone=True)
-        except AttributeError:
-            # The column is actually a DatetimeIndex
-            # GH 26761 or an Index with date-like data e.g. 9999-01-01
-            if getattr(col, 'tz', None) is not None:
-                return st.TIMESTAMP(timezone=True)
-        return st.DateTime
-
-    if col_type == 'timedelta64':
-        warnings.warn(
-            "the 'timedelta' type is not supported, and will be "
-            'written as integer values (ns frequency) to the database.',
-            UserWarning,
-            stacklevel=8,
-        )
-        return st.BigInteger
-
-    elif col_type == 'floating':
-        if col.dtype == 'float32':
-            return st.Float(precision=23)
-        else:
-            return st.Float(precision=53)
-
-    elif col_type == 'integer':
-        # GH35076 Map pandas integer to optimal SQLAlchemy integer type
-        if col.dtype.name.lower() in ('int8', 'uint8', 'int16'):
-            return st.SmallInteger
-        elif col.dtype.name.lower() in ('uint16', 'int32'):
-            return st.Integer
-        elif col.dtype.name.lower() == 'uint64':
-            raise ValueError('Unsigned 64 bit integer datatype is not supported')
-        else:
-            return st.BigInteger
-
-    elif col_type == 'boolean':
-        return st.Boolean
-
-    elif col_type == 'date':
-        return st.Date
-
-    elif col_type == 'time':
-        return st.Time
-
-    elif col_type == 'complex':
-        raise ValueError('Complex datatypes not supported')
-
-    elif col_type == 'decimal':
-        return st.DECIMAL(60, 30)
-
-    return st.Text
-
-
-def _ibis_schema_to_sqlalchemy_dtypes(df_schema: ibis.Schema) -> Dict[str, Any]:
-    """
-    Convert an Ibis Schema to a dict of SQLAlchemy types.
-
-    Parameters
-    ----------
-    schema: ibis.Schema
-        Schema object to convert
-
-    Returns
-    -------
-    Dict[str, Any]
-
-    """
-    from ibis.backends.base.sql.alchemy import datatypes
-    return dict(
-        zip(
-            df_schema.names,
-            [datatypes.to_sqla_type(x) for x in df_schema.types],
-        ),
-    )
-
-
-def _infer_dtypes(
-    frame: pd.DataFrame,
-    dtype: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    Infer the SQLAlchemy dtypes for a DataFrame.
-
-    Parameters
-    ----------
-    frame : pd.DataFrame
-        The DataFrame to inspect
-
-    Returns
-    -------
-    Dict[str, sa.type]
-
-    """
-    return dict([
-        (str(frame.columns[i]), _series_sqlalchemy_type(frame.iloc[:, i], dtype))
-        for i in range(len(frame.columns))
-    ])
-
-
 class Backend(BaseAlchemyBackend):
     name = 'singlestoredb'
     compiler = SingleStoreDBCompiler
@@ -208,6 +71,10 @@ class Backend(BaseAlchemyBackend):
             raise ValueError(f'Database with the name "{name}" already exists.')
         # TODO: escape name
         self.raw_sql(f'CREATE DATABASE IF NOT EXISTS {name}')
+
+    @property
+    def show(self) -> Any:
+        return self.con.raw_connection().show
 
     def sync_functions(self) -> None:
         """Synchronize client APIs with server functions."""
@@ -268,6 +135,23 @@ class Backend(BaseAlchemyBackend):
 #                   query = "SET @@session.time_zone = '{}'"
 #                   bind.execute(query.format(previous_timezone))
 
+    def _table_from_schema(
+        self, name: str, schema: sch.Schema, database: str | None = None,
+        table_type: Optional[str] = None, extend_existing: bool = False,
+    ) -> sa.Table:
+        columns = self._columns_from_schema(name, schema)
+        kw = {'extend_existing': extend_existing}
+#       if not extend_existing and table_type:
+#           kw['prefixes'] = [table_type.upper()]
+        out = sa.Table(name, self.meta, *columns, **kw)
+        # TODO: This is a hack around the problem that SQLAlchemy won't
+        #       allow prefixes= and extend_existing=True in the same call.
+        out._prefixes.remove('ROWSTORE') if 'ROWSTORE' in out._prefixes else None
+        out._prefixes.remove('COLUMNSTORE') if 'COLUMNSTORE' in out._prefixes else None
+        if table_type:
+            out._prefixes.insert(0, table_type)
+        return out
+
     def create_table(
         self,
         name: str,
@@ -275,8 +159,11 @@ class Backend(BaseAlchemyBackend):
         schema: sch.Schema | None = None,
         database: str | None = None,
         force: bool = False,
+        table_type: Optional[str] = None,
     ) -> None:
-        """Create a new table.
+        """
+        Create a new table.
+
         Parameters
         ----------
         name
@@ -293,7 +180,17 @@ class Backend(BaseAlchemyBackend):
             default.
         force
             Check whether a table exists before creating it
+        table_type
+            The type of table to create: COLUMNSTORE or ROWSTORE
+
         """
+        if table_type:
+            table_type = table_type.upper()
+            if table_type not in ['ROWSTORE', 'COLUMNSTORE']:
+                raise ValueError(f'Unknown table type: {table_type}')
+            if table_type == 'COLUMNSTORE':
+                table_type = None
+
         if database == self.current_database:
             # avoid fully qualified name
             database = None
@@ -306,6 +203,16 @@ class Backend(BaseAlchemyBackend):
 
         if expr is None and schema is None:
             raise ValueError('You must pass either an expression or a schema')
+
+        drop = False
+        if name.lower() in [x.lower() for x in self.list_tables()]:
+            if force:
+                drop = True
+            else:
+                raise ValueError(
+                    f'Table {name} already exists. '
+                    'Use force=True to overwrite.',
+                )
 
         if isinstance(expr, pd.DataFrame):
             if schema is not None:
@@ -326,18 +233,25 @@ class Backend(BaseAlchemyBackend):
                 except (AttributeError, TypeError):
                     pass
 
-            if schema is not None:
-                dtype = _ibis_schema_to_sqlalchemy_dtypes(schema)
-            else:
-                dtype = _infer_dtypes(expr)
+            if schema is None:
+                schema = ibis.pandas.connect({name: expr}).table(name).schema()
 
-            expr.to_sql(
-                name,
-                self.con,
-                index=False,
-                if_exists='replace' if force else 'fail',
-                dtype=dtype,
+            self._schemas[self._fully_qualified_name(name, database)] = schema
+            t = self._table_from_schema(
+                name, schema, database=database or self.current_database,
+                table_type=table_type, extend_existing=drop,
             )
+
+            with self.begin() as bind:
+                if drop:
+                    t.drop()
+                t.create(bind=bind, checkfirst=force)
+                expr.to_sql(
+                    name,
+                    self.con,
+                    index=False,
+                    if_exists='append',
+                )
 
         elif isinstance(expr, ir.TableExpr) or schema is not None:
             if expr is not None and schema is not None:
@@ -353,9 +267,12 @@ class Backend(BaseAlchemyBackend):
             self._schemas[self._fully_qualified_name(name, database)] = schema
             t = self._table_from_schema(
                 name, schema, database=database or self.current_database,
+                table_type=table_type, extend_existing=drop,
             )
 
             with self.begin() as bind:
+                if drop:
+                    t.drop()
                 t.create(bind=bind, checkfirst=force)
                 if expr is not None:
                     bind.execute(
