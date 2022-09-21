@@ -74,7 +74,38 @@ class Backend(BaseAlchemyBackend):
 
     @property
     def show(self) -> Any:
+        """Access to SHOW commands on the server."""
         return self.con.raw_connection().show
+
+    @property
+    def globals(self) -> Any:
+        """Accessor for global variables in the server."""
+        return self.con.raw_connection().globals
+
+    @property
+    def locals(self) -> Any:
+        """Accessor for local variables in the server."""
+        return self.con.raw_connection().locals
+
+    @property
+    def cluster_globals(self) -> Any:
+        """Accessor for cluster global variables in the server."""
+        return self.con.raw_connection().cluster_globals
+
+    @property
+    def cluster_locals(self) -> Any:
+        """Accessor for cluster local variables in the server."""
+        return self.con.raw_connection().cluster_locals
+
+    @property
+    def vars(self) -> Any:
+        """Accessor for variables in the server."""
+        return self.con.raw_connection().vars
+
+    @property
+    def cluster_vars(self) -> Any:
+        """Accessor for cluster variables in the server."""
+        return self.con.raw_connection().cluster_vars
 
     def sync_functions(self) -> None:
         """Synchronize client APIs with server functions."""
@@ -137,20 +168,13 @@ class Backend(BaseAlchemyBackend):
 
     def _table_from_schema(
         self, name: str, schema: sch.Schema, database: str | None = None,
-        storage_type: Optional[str] = None, extend_existing: bool = False,
+        storage_type: Optional[str] = None,
     ) -> sa.Table:
         columns = self._columns_from_schema(name, schema)
-        kw = {'extend_existing': extend_existing}
-#       if not extend_existing and storage_type:
-#           kw['prefixes'] = [storage_type.upper()]
-        out = sa.Table(name, self.meta, *columns, **kw)
-        # TODO: This is a hack around the problem that SQLAlchemy won't
-        #       allow prefixes= and extend_existing=True in the same call.
-        out._prefixes.remove('ROWSTORE') if 'ROWSTORE' in out._prefixes else None
-        out._prefixes.remove('COLUMNSTORE') if 'COLUMNSTORE' in out._prefixes else None
+        kw = {}
         if storage_type:
-            out._prefixes.insert(0, storage_type)
-        return out
+            kw['prefixes'] = [storage_type.upper()]
+        return sa.Table(name, self.meta, *columns, **kw)
 
     def create_table(
         self,
@@ -210,7 +234,7 @@ class Backend(BaseAlchemyBackend):
                 drop = True
             else:
                 raise ValueError(
-                    f'Table {name} already exists. '
+                    f'Table `{name}` already exists. '
                     'Use force=True to overwrite.',
                 )
 
@@ -237,14 +261,16 @@ class Backend(BaseAlchemyBackend):
                 schema = ibis.pandas.connect({name: expr}).table(name).schema()
 
             self._schemas[self._fully_qualified_name(name, database)] = schema
+
+            if drop:
+                self.drop_table(name, force=True)
+
             t = self._table_from_schema(
                 name, schema, database=database or self.current_database,
-                storage_type=storage_type, extend_existing=drop,
+                storage_type=storage_type,
             )
 
             with self.begin() as bind:
-                if drop:
-                    t.drop()
                 t.create(bind=bind, checkfirst=force)
                 expr.to_sql(
                     name,
@@ -265,14 +291,16 @@ class Backend(BaseAlchemyBackend):
                 schema = expr.schema()  # type: ignore
 
             self._schemas[self._fully_qualified_name(name, database)] = schema
+
+            if drop:
+                self.drop_table(name, force=True)
+
             t = self._table_from_schema(
                 name, schema, database=database or self.current_database,
-                storage_type=storage_type, extend_existing=drop,
+                storage_type=storage_type,
             )
 
             with self.begin() as bind:
-                if drop:
-                    t.drop()
                 t.create(bind=bind, checkfirst=force)
                 if expr is not None:
                     bind.execute(

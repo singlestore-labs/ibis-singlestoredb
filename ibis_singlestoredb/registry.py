@@ -87,7 +87,7 @@ def _cast(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
 
     # specialize going from an integer type to a timestamp
     if isinstance(arg.type(), dt.Integer) and isinstance(sa_type, sa.DateTime):
-        return sa.func.timezone('UTC', sa.func.to_timestamp(sa_arg))
+        return sa.func.convert_tz(sa.func.from_unixtime(sa_arg), 'SYSTEM', 'UTC')
 
     if arg.type().equals(dt.binary) and typ.equals(dt.string):
         return sa.func.hex(sa_arg)
