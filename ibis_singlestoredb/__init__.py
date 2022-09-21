@@ -29,7 +29,7 @@ from .compiler import SingleStoreDBCompiler
 from .datatypes import _type_from_cursor_info
 
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 
 class Backend(BaseAlchemyBackend):
