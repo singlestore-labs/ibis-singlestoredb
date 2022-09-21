@@ -137,19 +137,19 @@ class Backend(BaseAlchemyBackend):
 
     def _table_from_schema(
         self, name: str, schema: sch.Schema, database: str | None = None,
-        table_type: Optional[str] = None, extend_existing: bool = False,
+        storage_type: Optional[str] = None, extend_existing: bool = False,
     ) -> sa.Table:
         columns = self._columns_from_schema(name, schema)
         kw = {'extend_existing': extend_existing}
-#       if not extend_existing and table_type:
-#           kw['prefixes'] = [table_type.upper()]
+#       if not extend_existing and storage_type:
+#           kw['prefixes'] = [storage_type.upper()]
         out = sa.Table(name, self.meta, *columns, **kw)
         # TODO: This is a hack around the problem that SQLAlchemy won't
         #       allow prefixes= and extend_existing=True in the same call.
         out._prefixes.remove('ROWSTORE') if 'ROWSTORE' in out._prefixes else None
         out._prefixes.remove('COLUMNSTORE') if 'COLUMNSTORE' in out._prefixes else None
-        if table_type:
-            out._prefixes.insert(0, table_type)
+        if storage_type:
+            out._prefixes.insert(0, storage_type)
         return out
 
     def create_table(
@@ -159,7 +159,7 @@ class Backend(BaseAlchemyBackend):
         schema: sch.Schema | None = None,
         database: str | None = None,
         force: bool = False,
-        table_type: Optional[str] = None,
+        storage_type: Optional[str] = None,
     ) -> None:
         """
         Create a new table.
@@ -180,16 +180,16 @@ class Backend(BaseAlchemyBackend):
             default.
         force
             Check whether a table exists before creating it
-        table_type
-            The type of table to create: COLUMNSTORE or ROWSTORE
+        storage_type
+            The storage type of table to create: COLUMNSTORE or ROWSTORE
 
         """
-        if table_type:
-            table_type = table_type.upper()
-            if table_type not in ['ROWSTORE', 'COLUMNSTORE']:
-                raise ValueError(f'Unknown table type: {table_type}')
-            if table_type == 'COLUMNSTORE':
-                table_type = None
+        if storage_type:
+            storage_type = storage_type.upper()
+            if storage_type not in ['ROWSTORE', 'COLUMNSTORE']:
+                raise ValueError(f'Unknown table type: {storage_type}')
+            if storage_type == 'COLUMNSTORE':
+                storage_type = None
 
         if database == self.current_database:
             # avoid fully qualified name
@@ -239,7 +239,7 @@ class Backend(BaseAlchemyBackend):
             self._schemas[self._fully_qualified_name(name, database)] = schema
             t = self._table_from_schema(
                 name, schema, database=database or self.current_database,
-                table_type=table_type, extend_existing=drop,
+                storage_type=storage_type, extend_existing=drop,
             )
 
             with self.begin() as bind:
@@ -267,7 +267,7 @@ class Backend(BaseAlchemyBackend):
             self._schemas[self._fully_qualified_name(name, database)] = schema
             t = self._table_from_schema(
                 name, schema, database=database or self.current_database,
-                table_type=table_type, extend_existing=drop,
+                storage_type=storage_type, extend_existing=drop,
             )
 
             with self.begin() as bind:
