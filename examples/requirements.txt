@@ -1,0 +1,5 @@
+ibis-framework>=3.0.0,<4.0.0
+jupyter
+matplotlib
+seaborn
+singlestoredb[dataframe]>=0.3.3
