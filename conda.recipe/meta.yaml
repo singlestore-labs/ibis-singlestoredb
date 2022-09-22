@@ -19,7 +19,7 @@ requirements:
     run:
         - singlestoredb
         - sqlalchemy-singlestoredb
-        - ibis-framework
+        - ibis-framework>=3.0.0,<4.0.0
 
 test:
     imports:

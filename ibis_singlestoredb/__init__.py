@@ -9,11 +9,11 @@ from typing import Dict
 from typing import Generator
 from typing import Optional
 
-import ibis
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
+import ibis.util
 import pandas as pd
 import sqlalchemy as sa
 import sqlalchemy.dialects.mysql as singlestoredb
@@ -270,6 +270,11 @@ class Backend(BaseAlchemyBackend):
                 storage_type=storage_type,
             )
 
+            if ibis.options.verbose:
+                from sqlalchemy.schema import CreateTable
+                create_stmt = CreateTable(t).compile(self.con.engine)
+                ibis.util.log(str(create_stmt).strip())
+
             with self.begin() as bind:
                 t.create(bind=bind, checkfirst=force)
                 expr.to_sql(
@@ -299,6 +304,11 @@ class Backend(BaseAlchemyBackend):
                 name, schema, database=database or self.current_database,
                 storage_type=storage_type,
             )
+
+            if ibis.options.verbose:
+                from sqlalchemy.schema import CreateTable
+                create_stmt = CreateTable(t).compile(self.con.engine)
+                ibis.util.log(str(create_stmt).strip())
 
             with self.begin() as bind:
                 t.create(bind=bind, checkfirst=force)
