@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import operator
+from typing import Any
 from typing import Callable
+from typing import Optional
+from typing import Sequence
+from typing import Set
 
 import ibis
 import ibis.backends.base.sql.compiler.translator as tr
@@ -11,6 +15,7 @@ import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import numpy as np
 import pandas as pd
 import sqlalchemy as sa
 from ibis.backends.base.sql.alchemy import fixed_arity
@@ -128,6 +133,13 @@ def _round(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.func.round(sa_arg, sa_digits)
 
 
+def _quantile(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    arg, quantile, interpolation = expr.op().args
+    sa_arg = t.translate(arg)
+    sa_quantile = t.translate(quantile)
+    return sa.func.approx_percentile(sa_arg, sa_quantile)
+
+
 def _floor_divide(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     left, right = map(t.translate, expr.op().args)
     return sa.func.floor(left / right)
@@ -232,6 +244,11 @@ def _string_contains(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return _string_find(t, expr) >= 0
 
 
+def _approx_median(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    args = expr.op().args
+    return sa.func.median(t.translate(args[0]))
+
+
 operation_registry.update(
     {
         ops.Literal: _literal,
@@ -248,6 +265,7 @@ operation_registry.update(
         ops.Log10: unary(sa.func.log10),
         ops.Round: _round,
         ops.RandomScalar: _random,
+        ops.Quantile: _quantile,
         # dates and times
         ops.Date: unary(sa.func.date),
         ops.DateAdd: fixed_arity(operator.add, 2),
@@ -272,6 +290,7 @@ operation_registry.update(
         ops.ExtractSecond: _extract('second'),
         ops.ExtractMillisecond: _extract('millisecond'),
         # reductions
+        ops.ApproxMedian: _approx_median,
         #       ops.BitAnd: reduction(sa.func.bit_and),
         #       ops.BitOr: reduction(sa.func.bit_or),
         #       ops.BitXor: reduction(sa.func.bit_xor),
@@ -288,3 +307,233 @@ operation_registry.update(
         #       ),
     },
 )
+
+
+def _describe_table(
+    self: Any,
+    percentiles: Sequence[float] = [0.25, 0.5, 0.75],
+    include: Optional[Sequence[Any]] = None,
+    exclude: Optional[Sequence[Any]] = None,
+    datetime_is_numeric: bool = False,
+    stats: Optional[Sequence[str]] = None,
+) -> ir.TableExpr:
+    """
+    Compute descriptive statistics.
+
+    Note that since all statistics are stored in columns, there can
+    be mixed data types represented in some columns such as ``min``,
+    ``max``, ``top``, etc. Because of this, any column that contains
+    the actual value of a column has a string type and the value
+    must be parsed from the return value.
+
+    Parameters
+    ----------
+    percentiles : list-like of floats, optional
+        The percentiles to compute. Values should be between 0 and 1.
+    include : 'all' or list-like of dtypes, optional
+        By default, only numeric columns are included in the results.
+        Specify 'all' to include all variables. A list of data types
+        can also be specified. For example, ``numpy.number`` will
+        select all numerics, ``numpy.object`` will select all
+        objects types (i.e., strings and binary).
+    exclude : list-like of dtypes, optional
+        A list of data types to exclude.
+    datetime_is_numeric : bool, optional
+        Whether to treat datetimes as numeric. This affects the statistics
+        computed for the column.
+    stats : list-like of strings, optional
+        Statistics to include in the output. By default, statistics are
+        chosen based on data type. For numerics, ``count``, ``mean``,
+        ``median``, ``std``, ``var``, ``min``, ``pct``, and ``max``
+        are computed. For strings and binary, ``count``, ``unique``,
+        ``min``, ``max``, ``top``, and ``freq`` are computed. For datetimes,
+        ``count``, ``unique``, ``min``, ``max``, ``top``, and ``freq``
+        are computed. If ``datetime_is_numeric`` is specified, all numeric
+        computations are done for datetimes as well.
+
+    Returns
+    -------
+    TableExpr
+
+    """
+    stat_map = dict(unique='nunique', median='approx_median')
+    type_map = dict(
+        std='double', mean='double', var='double',
+        count='int64', unique='int64',
+    )
+
+    # Valid stats for each type
+    num_stats = set('count mean median std var min pct max'.split())
+    str_stats = set('count unique min max top freq'.split())
+    dt_stats = set('count unique min max top freq'.split())
+
+    if datetime_is_numeric:
+        dt_stats.union(num_stats)
+
+    # Compute includes and excludes
+
+    if include is None:
+        include = ['number']
+    elif not isinstance(include, Sequence) or isinstance(include, str):
+        include = [include]
+
+    if exclude is None:
+        exclude = []
+    elif not isinstance(exclude, Sequence) or isinstance(exclude, str):
+        exclude = [exclude]
+
+    include_map = {
+        np.object: 'object', np.datetime64: 'datetime',
+        'datetime64': 'datetime', np.timedelta64: 'timedelta',
+        'timedelta64': 'timedelta', 'category': 'object',
+        'datetimetz': 'datetime', 'datetime64[ns, tz]': 'datetime',
+        int: 'int', 'i': 'int', float: 'float', 'f': 'float',
+        str: 'string', 'str': 'string', bytes: 'binary',
+        'bytes': 'binary', 'O': 'object',
+    }
+
+    include_set = set([include_map.get(x, x) for x in include])
+    exclude_set = set([include_map.get(x, x) for x in exclude])
+    include_set = include_set.difference(exclude_set)
+
+    include_vars = []
+    for name, dtype in self.schema().items():
+        if 'all' in include_set or 'one' in include_set:
+            include_vars.append((name, dtype))
+        elif 'object' in include_set and \
+                isinstance(dtype, (dt.String, dt.Binary)):
+            include_vars.append((name, dtype))
+        elif 'string' in include_set and \
+                isinstance(dtype, dt.String):
+            include_vars.append((name, dtype))
+        elif 'number' in include_set and \
+                isinstance(dtype, (dt.Integer, dt.Floating, dt.Decimal)):
+            include_vars.append((name, dtype))
+        elif 'number' in include_set and datetime_is_numeric and \
+                isinstance(dtype, (dt.Timestamp, dt.Date, dt.Time, dt.Interval)):
+            include_vars.append((name, dtype))
+        elif 'float' in include_set and \
+                isinstance(dtype, (dt.Floating, dt.Decimal)):
+            include_vars.append((name, dtype))
+        elif 'int' in include_set and \
+                isinstance(dtype, dt.Integer):
+            include_vars.append((name, dtype))
+        elif 'datetime' in include_set and \
+                isinstance(dtype, (dt.Timestamp, dt.Date, dt.Time)):
+            include_vars.append((name, dtype))
+        elif 'timedelta' in include_set and \
+                isinstance(dtype, dt.Interval):
+            include_vars.append((name, dtype))
+        elif 'bytes' in include_set and \
+                isinstance(dtype, dt.Binary):
+            include_vars.append((name, dtype))
+
+    if not include_vars:
+        raise ValueError(
+            'No variables selected. Use `include=` or `exclude=` '
+            'to select valid data types.',
+        )
+
+    # Compute stats list
+    type_stats: Set[str] = set()
+    for name, dtype in include_vars:
+        if isinstance(dtype, (dt.Timestamp, dt.Date, dt.Time, dt.Interval)):
+            type_stats = type_stats.union(dt_stats)
+        elif isinstance(dtype, (dt.String, dt.Binary, dt.Set, dt.Enum)):
+            type_stats = type_stats.union(str_stats)
+        else:
+            type_stats = type_stats.union(num_stats)
+
+    stats = [
+        x for x in [
+            'count', 'unique', 'mean', 'median', 'std', 'var',
+            'min', 'pct', 'max', 'top', 'freq',
+        ]
+        if x in type_stats and (stats is None or x in stats)
+    ]
+
+    union = []
+
+    # Build table expression
+    if 'one' in include_set:
+        out_type = str(include_vars[0][-1])
+    else:
+        out_type = 'string'
+    for name, dtype in include_vars:
+        if 'one' in include_set:
+            agg = {}
+        else:
+            agg = {'name': ibis.literal(name)}
+        freq = None
+        for stat in stats:
+            mthd_name = stat_map.get(stat, stat)
+            # Expand 'pct' to percentile values
+            if stat == 'pct':
+                for pct in percentiles:
+                    pct_label = str(int(pct * 100)) + '%'
+                    if hasattr(self[name], 'quantile'):
+                        agg[pct_label] = self[name].quantile(pct).cast(out_type)
+                    else:
+                        agg[pct_label] = ibis.null().cast(out_type)
+            elif stat in ['top', 'freq']:
+                freq = self[name].topk(1).to_aggregation(metric_name='freq')[
+                    lambda x: x[name].cast(out_type).name('top'), 'freq',
+                ]
+            else:
+                mthd = getattr(self[name], mthd_name, None)
+                if mthd is None:
+                    agg[stat] = ibis.null().cast(type_map.get(stat, out_type))
+                elif stat == 'median' and isinstance(dtype, dt.String):
+                    agg[stat] = ibis.null().cast(type_map.get(stat, out_type))
+                else:
+                    agg[stat] = mthd().cast(type_map.get(stat, out_type))
+
+        union.append(self.aggregate(**agg))
+
+        if freq is not None:
+            union[-1] = union[-1].cross_join(freq)
+
+    return ibis.union(*union)
+
+
+ir.Table.describe = _describe_table
+
+
+def _describe_column(
+    self: Any,
+    percentiles: Sequence[float] = [0.25, 0.5, 0.75],
+    datetime_is_numeric: bool = False,
+    stats: Optional[Sequence[str]] = None,
+) -> ir.TableExpr:
+    """
+    Compute descriptive statistics.
+
+    Parameters
+    ----------
+    percentiles : list-like of floats, optional
+        The percentiles to compute. Values should be between 0 and 1.
+    datetime_is_numeric : bool, optional
+        Whether to treat datetimes as numeric. This affects the statistics
+        computed for the column.
+    stats : list-like of strings, optional
+        Statistics to include in the output. By default, statistics are
+        chosen based on data type. For numerics, ``count``, ``mean``,
+        ``median``, ``std``, ``var``, ``min``, ``pct``, and ``max``
+        are computed. For strings and binary, ``count``, ``unique``,
+        ``min``, ``max``, ``top``, and ``freq`` are computed. For datetimes,
+        ``count``, ``unique``, ``min``, ``max``, ``top``, and ``freq``
+        are computed. If ``datetime_is_numeric`` is specified, all numeric
+        computations are done for datetimes as well.
+
+    Returns
+    -------
+    TableExpr
+
+    """
+    return _describe_table(
+        self.to_projection(), percentiles=percentiles,
+        include='one', exclude=None, datetime_is_numeric=datetime_is_numeric, stats=stats,
+    )
+
+
+ir.AnyColumn.describe = _describe_column

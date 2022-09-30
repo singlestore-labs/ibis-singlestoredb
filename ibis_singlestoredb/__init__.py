@@ -26,6 +26,8 @@ from sqlalchemy_singlestoredb.base import SingleStoreDBDialect
 
 from . import functions as fn
 from .compiler import SingleStoreDBCompiler
+from .database import SingleStoreDBDatabase
+from .database import SingleStoreDBTable
 from .datatypes import _type_from_cursor_info
 
 
@@ -35,6 +37,9 @@ __version__ = '0.1.1'
 class Backend(BaseAlchemyBackend):
     name = 'singlestoredb'
     compiler = SingleStoreDBCompiler
+
+    database_class = SingleStoreDBDatabase
+    table_class = SingleStoreDBTable
 
     _database_name: Optional[str] = None
 
