@@ -31,7 +31,7 @@ from .database import SingleStoreDBTable
 from .datatypes import _type_from_cursor_info
 
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 
 
 class Backend(BaseAlchemyBackend):
