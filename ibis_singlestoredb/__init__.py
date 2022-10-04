@@ -346,7 +346,7 @@ class Backend(BaseAlchemyBackend):
         name: str,
         definition: sa.sql.compiler.Compiled,
     ) -> str:
-        return f'CREATE OR REPLACE VIEW {name} AS {definition}'
+        return f'CREATE VIEW {name} AS {definition}'
 
     def _register_temp_view_cleanup(self, name: str, raw_name: str) -> None:
         query = f'DROP VIEW IF EXISTS {name}'

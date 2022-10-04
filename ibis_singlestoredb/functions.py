@@ -38,7 +38,7 @@ def _build_data_type(
     args : Sequence[int], optional
         Data type parameters
     schema : Sequence[dt.DataType], optional
-        Schema of data type if it is a table or record
+        Schema of data type if it is a array, record, or table
 
     Returns
     -------
@@ -60,6 +60,7 @@ def _build_data_type(
         'tinyblob': dt.Binary, 'mediumblob': dt.Binary, 'longblob': dt.Binary,
         'json': dt.JSON, 'record': dt.Struct, 'geograph': dt.Geography,
         'geographypoint': dt.Point, 'table': dt.Struct, 'null': dt.Null,
+        'array': dt.Array,
     }
 
     attrs: Dict[str, Any] = {}
@@ -74,9 +75,14 @@ def _build_data_type(
 
     elif dtype in ['record', 'table']:
         if not schema:
-            raise ValueError('A schema is required for struct and table types.')
+            raise ValueError('A schema is required for record and table types.')
         attrs['names'] = [x[0] for x in schema]
         attrs['types'] = [x[1] for x in schema]
+
+    elif dtype in ['array']:
+        if not schema:
+            raise ValueError('A data type is required for array types.')
+        attrs['value_type'] = schema[0][1]
 
     attrs['nullable'] = info.get('nullable', False)
 
@@ -105,9 +111,12 @@ def _parse_data_type(data: str) -> Tuple[dt.DataType, str]:
     schema = None
     data_type_args: List[int] = []
 
-    if data_type in ['table', 'record']:
+    if data_type in ['table', 'record', 'array']:
         _, data = re.split(r'^\s*\(\s*', data, flags=re.I, maxsplit=1)
-        schema, data = _parse_params(data)
+        if data_type in ['array']:
+            schema, data = _parse_params(data, parse_names=False)
+        else:
+            schema, data = _parse_params(data)
     elif data.startswith('('):
         _, data = re.split(r'^\s*\(\s*', data, maxsplit=1)
         args, data = re.split(r'\s*\)\s*', data, flags=re.I, maxsplit=1)
@@ -146,7 +155,7 @@ def _parse_data_type(data: str) -> Tuple[dt.DataType, str]:
 
 def _parse_params(params: str, parse_names: bool = True) -> Tuple[List[dt.DataType], str]:
     """
-    Parse function / table / record parameters from string.
+    Parse function / table / record / array parameters from string.
 
     Parameters
     ----------
@@ -265,7 +274,11 @@ def build_function(conn: Any, name: str) -> Optional[Callable[..., Any]]:
     qname = quote_identifier(name)
     proto = conn.raw_sql(f'show create function {db}.{qname}').fetchall()[0][2]
 
-    func_type, func_name, inputs, output, info = _parse_create_function(proto)
+    try:
+        func_type, func_name, inputs, output, info = _parse_create_function(proto)
+    except Exception:
+        print(f'Failed to parse: {proto}')
+        return None
 
     return _make_udf(func_name, func_type, inputs, output, info)
 
@@ -334,7 +347,7 @@ def _make_udf(
     if output is not None and isinstance(output, dt.Struct):
         warnings.warn(
             f'Could not create function `{name}`. '
-            'Table and record return types are not supported.',
+            'Array, record, and table return types are not supported.',
             RuntimeWarning,
         )
         return None
