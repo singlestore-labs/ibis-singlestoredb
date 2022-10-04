@@ -40,7 +40,7 @@ conn = ibis.singlestoredb.connect('http://user:password@host:8080/db_name')
 
 ## License
 
-This library is licensed under the [Apache 2.0 License](https://raw.githubusercontent.com/singlestore-labs/singlestore-python/main/LICENSE?token=GHSAT0AAAAAABMGV6QPNR6N23BVICDYK5LAYTVK5EA).
+This library is licensed under the [Apache 2.0 License](https://raw.githubusercontent.com/singlestore-labs/singlestoredb-python/main/LICENSE?token=GHSAT0AAAAAABMGV6QPNR6N23BVICDYK5LAYTVK5EA).
 
 ## Resources
 

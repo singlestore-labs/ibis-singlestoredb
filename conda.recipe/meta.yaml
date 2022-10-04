@@ -23,7 +23,7 @@ requirements:
 
 test:
     imports:
-        - ibis_singlestore
+        - ibis_singlestoredb
     requires:
         - coverage
         - pandas
@@ -33,9 +33,9 @@ test:
         - pytest -v ibis_singlestoredb/tests
 
 about:
-    home: https://github.com/singlestore-labs/ibis-singlestore
+    home: https://github.com/singlestore-labs/ibis-singlestoredb
     license: Apache 2.0
     license_file: ../LICENSE
     summary: SingleStoreDB SQLAlchemy Dialect
-    doc_url: https://singlestore.github.io/ibis-singlestoredb/index.html
+    doc_url: https://ibis-singlestoredb.labs.singlestore.com/index.html
     dev_url: https://github.com/singlestore/ibis-singlestoredb

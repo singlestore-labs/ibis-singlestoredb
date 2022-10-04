@@ -8,6 +8,7 @@ from typing import Callable
 from typing import Optional
 from typing import Sequence
 from typing import Set
+from typing import Union
 
 import ibis
 import ibis.backends.base.sql.compiler.translator as tr
@@ -15,6 +16,7 @@ import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import ibis.expr.types.groupby as ig
 import numpy as np
 import pandas as pd
 import sqlalchemy as sa
@@ -497,6 +499,87 @@ def _describe_table(
 
 
 ir.Table.describe = _describe_table
+
+
+def _corr(
+    self: Any,
+    index_label: Optional[str] = 'Variable',
+    diagonals: Union[float, int] = 1,
+    group_by: Optional[Union[str, list[str]]] = None,
+) -> pd.DataFrame:
+    """Compute the correlation matrix for all numeric variables."""
+    if isinstance(self, ig.GroupedTable):
+        table = self.table
+    else:
+        table = self
+
+    num_vars = []
+    for name, dtype in table.schema().items():
+        if isinstance(dtype, (dt.Integer, dt.Floating, dt.Decimal)):
+            num_vars.append(name)
+
+    from sqlalchemy_singlestoredb import array
+
+    group_vars = []
+    if group_by is not None:
+        if isinstance(group_by, str):
+            group_vars = [group_by]
+        else:
+            group_vars = group_by
+
+    query = sa.select(
+        *[sa.column(x) for x in group_vars], sa.func.corrmat(
+            sa.func.vec_pack_f64(
+                array(
+                    *[sa.column(x) for x in num_vars],
+                ),
+            ),
+        ),
+    ).select_from(table.compile().subquery())
+
+    if group_by is not None and group_by:
+        query = query.group_by(*[sa.column(x) for x in group_by])
+
+    n = len(num_vars)
+    out = []
+    df = table.sql(str(query)).execute()
+    for row in df.itertuples(index=False):
+        index = list(row[:-1])
+        corr = row[-1]
+        mat = np.zeros((n, n))
+        for i in range(n):
+            for j in range(i+1):
+                mat[i, j] = corr.pop(0)
+        mat = mat + np.transpose(mat)
+        for i in range(n):
+            mat[i, i] = diagonals
+
+        for i, item in enumerate(index):
+            index[i] = [item] * n
+
+        index.append(num_vars)
+
+        out.append(pd.DataFrame(mat, columns=num_vars, index=index))
+        out[-1].index.names = group_vars + [index_label]  # type: ignore
+
+    return pd.concat(out)
+
+
+ir.Table.corr = _corr
+
+
+def _grouped_corr(
+    self: Any,
+    index_label: Optional[str] = 'Variable',
+    diagonals: Union[float, int] = 1,
+) -> pd.DataFrame:
+    return _corr(
+        self, group_by=[x.get_name() for x in self.by],
+        index_label=index_label, diagonals=diagonals,
+    )
+
+
+ig.GroupedTable.corr = _grouped_corr
 
 
 def _describe_column(
