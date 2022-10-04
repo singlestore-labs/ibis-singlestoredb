@@ -181,36 +181,76 @@ class Backend(BaseAlchemyBackend):
             kw['prefixes'] = [storage_type.upper()]
         return sa.Table(name, self.meta, *columns, **kw)
 
+    def _merge_schema_overrides(
+        self,
+        schema: sch.Schema,
+        overrides: Dict[str, str] | sch.Schema,
+    ) -> sch.Schema:
+        """
+        Merge type overrides into a schema.
+
+        Parameters
+        ----------
+        schema : Schema
+            The starting schema
+        overrides : dict or Schema
+            The override types
+
+        Returns
+        -------
+        Schema
+
+        """
+        if not isinstance(overrides, sch.Schema):
+            overrides = sch.Schema.from_dict(overrides)
+
+        items = list(schema.items())
+        for i, item in enumerate(items):
+            if item[0] in overrides:
+                items[i] = (item[0], overrides[item[0]])
+
+        return ibis.Schema.from_tuples(items)
+
     def create_table(
         self,
         name: str,
-        expr: pd.DataFrame | ir.TableExpr | None = None,
-        schema: sch.Schema | None = None,
-        database: str | None = None,
+        expr: Optional[pd.DataFrame | ir.TableExpr] = None,
+        schema: Optional[sch.Schema] = None,
+        database: Optional[str] = None,
         force: bool = False,
         storage_type: Optional[str] = None,
-    ) -> None:
+        schema_overrides: Optional[Dict[str, str] | sch.Schema] = None,
+    ) -> ir.Table:
         """
         Create a new table.
 
         Parameters
         ----------
-        name
+        name : str
             Name of the new table.
-        expr
+        expr : Schema or DataFrame, optional
             An Ibis table expression or pandas DataFrame that will be used to
             extract the schema and the data of the new table. If not provided,
-            `schema` must be given.
-        schema
-            The schema for the new table. Only one of `schema` or `expr` can be
+            ``schema`` must be given.
+        schema : Schema, optional
+            The schema for the new table. Only one of ``schema`` or ``expr`` can be
             provided.
-        database
+        database : str, optional
             Name of the database where the table will be created, if not the
             default.
-        force
+        force : bool, optional
             Check whether a table exists before creating it
-        storage_type
+        storage_type : str, optional
             The storage type of table to create: COLUMNSTORE or ROWSTORE
+        schema_overrides : dict or Schema, optional
+            If the ``expr`` is a DataFrame, the data types of specific fields
+            can be overridden using a partial Schema or dict with keys for
+            the overridden columns. Values of the dict are simply the string
+            names of the data types: bool, int32, int64, float64, etc.
+
+        Returns
+        -------
+        Table expression
 
         """
         if storage_type:
@@ -264,6 +304,9 @@ class Backend(BaseAlchemyBackend):
 
             if schema is None:
                 schema = ibis.pandas.connect({name: expr}).table(name).schema()
+
+            if schema_overrides:
+                schema = self._merge_schema_overrides(schema, schema_overrides)
 
             self._schemas[self._fully_qualified_name(name, database)] = schema
 
