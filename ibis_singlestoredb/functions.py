@@ -20,6 +20,10 @@ import ibis.expr.types as types
 import sqlalchemy as sa
 
 
+class Table(dt.DataType):
+    """Placeholder for Table types until Ibis supports them."""
+
+
 def _build_data_type(
     dtype: str,
     info: Dict[str, Any],
@@ -59,7 +63,7 @@ def _build_data_type(
         'binary': dt.Binary, 'varbinary': dt.Binary, 'blob': dt.Binary,
         'tinyblob': dt.Binary, 'mediumblob': dt.Binary, 'longblob': dt.Binary,
         'json': dt.JSON, 'record': dt.Struct, 'geograph': dt.Geography,
-        'geographypoint': dt.Point, 'table': dt.Struct, 'null': dt.Null,
+        'geographypoint': dt.Point, 'table': Table, 'null': dt.Null,
         'array': dt.Array,
     }
 
@@ -73,7 +77,7 @@ def _build_data_type(
     if dtype in ['datetime', 'timestamp']:
         attrs['value_type'] = dt.Int64()
 
-    elif dtype in ['record', 'table']:
+    elif dtype in ['record']:
         if not schema:
             raise ValueError('A schema is required for record and table types.')
         attrs['names'] = [x[0] for x in schema]
@@ -344,10 +348,10 @@ def _make_udf(
     info: Optional[Dict[str, Any]],
 ) -> Optional[Callable[..., Any]]:
     """Define a callable that invokes a UDF on the server."""
-    if output is not None and isinstance(output, dt.Struct):
+    if output is not None and isinstance(output, Table):
         warnings.warn(
             f'Could not create function `{name}`. '
-            'Array, record, and table return types are not supported.',
+            'Table return types are not supported.',
             RuntimeWarning,
         )
         return None
@@ -362,7 +366,9 @@ def _make_udf(
 
     if output:
         cls_params['output_dtype'] = output
-        cls_params['output_shape'] = rlz.shape_like(inputs[0][0])
+        # TODO: Verify shape for various output types
+        if inputs:
+            cls_params['output_shape'] = rlz.shape_like(inputs[0][0])
 
     func_type = type(name.title().replace('_', ''), (ops.ValueOp,), cls_params)
 
@@ -379,6 +385,8 @@ def _make_udf(
             setattr(types.StringValue, name, eval_func)
         elif isinstance(inputs[0][1], dt.Integer):
             setattr(types.IntegerValue, name, eval_func)
+        elif isinstance(inputs[0][1], dt.Floating):
+            setattr(types.FloatingValue, name, eval_func)
 
     @ibis.singlestoredb.add_operation(func_type)
     def _eval_func(t: tr.ExprTranslator, expr: types.Expr) -> types.Expr:
