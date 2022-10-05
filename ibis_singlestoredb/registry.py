@@ -318,6 +318,8 @@ def _describe_table(
     exclude: Optional[Sequence[Any]] = None,
     datetime_is_numeric: bool = False,
     stats: Optional[Sequence[str]] = None,
+    by: Optional[Sequence[str | ir.Expr]] = None,
+    having: Optional[Sequence[ir.Expr]] = None,
 ) -> ir.TableExpr:
     """
     Compute descriptive statistics.
@@ -352,6 +354,10 @@ def _describe_table(
         ``count``, ``unique``, ``min``, ``max``, ``top``, and ``freq``
         are computed. If ``datetime_is_numeric`` is specified, all numeric
         computations are done for datetimes as well.
+    by : list-like of strings or expressions, optional
+        Group by variables
+    having : list-like of expressions, optional
+        Expressions that filter based on aggregate value
 
     Returns
     -------
@@ -490,7 +496,7 @@ def _describe_table(
                 else:
                     agg[stat] = mthd().cast(type_map.get(stat, out_type))
 
-        union.append(self.aggregate(**agg))
+        union.append(self.aggregate(**agg, by=by, having=having))
 
         if freq is not None:
             union[-1] = union[-1].cross_join(freq)
@@ -501,13 +507,76 @@ def _describe_table(
 ir.Table.describe = _describe_table
 
 
+def _grouped_describe(self: Any, *args: Any, **kwargs: Any) -> pd.DataFrame:
+    """
+    Compute descriptive statistics.
+
+    Note that since all statistics are stored in columns, there can
+    be mixed data types represented in some columns such as ``min``,
+    ``max``, ``top``, etc. Because of this, any column that contains
+    the actual value of a column has a string type and the value
+    must be parsed from the return value.
+
+    Parameters
+    ----------
+    percentiles : list-like of floats, optional
+        The percentiles to compute. Values should be between 0 and 1.
+    include : 'all' or list-like of dtypes, optional
+        By default, only numeric columns are included in the results.
+        Specify 'all' to include all variables. A list of data types
+        can also be specified. For example, ``numpy.number`` will
+        select all numerics, ``numpy.object`` will select all
+        objects types (i.e., strings and binary).
+    exclude : list-like of dtypes, optional
+        A list of data types to exclude.
+    datetime_is_numeric : bool, optional
+        Whether to treat datetimes as numeric. This affects the statistics
+        computed for the column.
+    stats : list-like of strings, optional
+        Statistics to include in the output. By default, statistics are
+        chosen based on data type. For numerics, ``count``, ``mean``,
+        ``median``, ``std``, ``var``, ``min``, ``pct``, and ``max``
+        are computed. For strings and binary, ``count``, ``unique``,
+        ``min``, ``max``, ``top``, and ``freq`` are computed. For datetimes,
+        ``count``, ``unique``, ``min``, ``max``, ``top``, and ``freq``
+        are computed. If ``datetime_is_numeric`` is specified, all numeric
+        computations are done for datetimes as well.
+
+    Returns
+    -------
+    TableExpr
+
+    """
+    return self.table.describe(*args, by=self.by, having=self._having, **kwargs)\
+                     .select(lambda x: x).sort_by([x.get_name() for x in self.by])
+
+
+ig.GroupedTable.describe = _grouped_describe
+
+
 def _corr(
     self: Any,
-    index_label: Optional[str] = 'Variable',
+    index_name: Optional[str] = 'Variable',
     diagonals: Union[float, int] = 1,
-    group_by: Optional[Union[str, list[str]]] = None,
+    by: Optional[Union[str, list[str]]] = None,
 ) -> pd.DataFrame:
-    """Compute the correlation matrix for all numeric variables."""
+    """
+    Compute the correlation matrix for all numeric variables.
+
+    Parameters
+    ----------
+    index_name : str, optional
+        The name of the column containing the variable names
+    diagonals : float or int, optional
+        Values of the diagnol components
+    by : str or list-of-str, optional
+        Group by variables
+
+    Returns
+    -------
+    DataFrame
+
+    """
     if isinstance(self, ig.GroupedTable):
         table = self.table
     else:
@@ -521,11 +590,11 @@ def _corr(
     from sqlalchemy_singlestoredb import array
 
     group_vars = []
-    if group_by is not None:
-        if isinstance(group_by, str):
-            group_vars = [group_by]
+    if by is not None:
+        if isinstance(by, str):
+            group_vars = [by]
         else:
-            group_vars = group_by
+            group_vars = by
 
     query = sa.select(
         *[sa.column(x) for x in group_vars], sa.func.corrmat(
@@ -537,8 +606,8 @@ def _corr(
         ),
     ).select_from(table.compile().subquery())
 
-    if group_by is not None and group_by:
-        query = query.group_by(*[sa.column(x) for x in group_by])
+    if by is not None and by:
+        query = query.group_by(*[sa.column(x) for x in by])
 
     n = len(num_vars)
     out = []
@@ -560,7 +629,7 @@ def _corr(
         index.append(num_vars)
 
         out.append(pd.DataFrame(mat, columns=num_vars, index=index))
-        out[-1].index.names = group_vars + [index_label]  # type: ignore
+        out[-1].index.names = group_vars + [index_name]  # type: ignore
 
     return pd.concat(out)
 
@@ -570,12 +639,27 @@ ir.Table.corr = _corr
 
 def _grouped_corr(
     self: Any,
-    index_label: Optional[str] = 'Variable',
+    index_name: Optional[str] = 'Variable',
     diagonals: Union[float, int] = 1,
 ) -> pd.DataFrame:
+    """
+    Compute the correlation matrix for all numeric variables.
+
+    Parameters
+    ----------
+    index_name : str, optional
+        The name of the column containing the variable names
+    diagonals : float or int, optional
+        Values of the diagnol components
+
+    Returns
+    -------
+    DataFrame
+
+    """
     return _corr(
-        self, group_by=[x.get_name() for x in self.by],
-        index_label=index_label, diagonals=diagonals,
+        self, by=[x.get_name() for x in self.by],
+        index_name=index_name, diagonals=diagonals,
     )
 
 
