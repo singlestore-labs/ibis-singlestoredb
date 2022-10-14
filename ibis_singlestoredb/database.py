@@ -6,9 +6,7 @@ from ibis.backends.base.sql.alchemy import AlchemyTable
 
 class SingleStoreDBDatabase(AlchemyDatabase):
     """SingleStoreDB database class."""
-    pass
 
 
-class SingleStoreDBTable(AlchemyTable):
+class SingleStoreDBDatabaseTable(AlchemyTable):
     """SingleStoreDB table class."""
-    pass

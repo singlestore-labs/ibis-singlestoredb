@@ -8,6 +8,7 @@ from typing import Callable
 from typing import Optional
 from typing import Sequence
 from typing import Set
+from typing import Tuple
 from typing import Union
 
 import ibis
@@ -251,6 +252,22 @@ def _approx_median(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.func.median(t.translate(args[0]))
 
 
+def _regex_search(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    args = expr.op().args
+    return sa.func.regexp_instr(*[t.translate(x) for x in args], sa.literal('g')) > 0
+
+
+def _regex_replace(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    # TODO: Requires regexp_format='advanced'
+    args = expr.op().args
+    return sa.func.regexp_replace(*[t.translate(x) for x in args], sa.literal('g'))
+
+
+def _regex_extract(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+    args = expr.op().args
+    return sa.func.regexp_extract(*[t.translate(x) for x in args], sa.literal('g'))
+
+
 operation_registry.update(
     {
         ops.Literal: _literal,
@@ -259,7 +276,9 @@ operation_registry.update(
         ops.StringFind: _string_find,
         ops.StringContains: _string_contains,
         ops.Capitalize: _capitalize,
-        ops.RegexSearch: fixed_arity(lambda x, y: x.op('REGEXP')(y), 2),
+        ops.RegexSearch: _regex_search,
+        ops.RegexReplace: _regex_replace,
+        ops.RegexExtract: _regex_extract,
         ops.Cast: _cast,
         # math
         ops.Log: _log,
@@ -704,3 +723,79 @@ def _describe_column(
 
 
 ir.AnyColumn.describe = _describe_column
+
+
+def _distinct_column(self: Any) -> ir.Expr:
+    """Return distinct values."""
+    return self.to_projection().distinct()[0]
+
+
+ir.AnyColumn.distinct = _distinct_column
+
+
+def _drop_duplicates(
+    self: Any,
+    subset: Optional[str | Sequence[str]] = None,
+    keep: str = 'first',
+    order_by: Optional[str | Sequence[str] | ir.Expr] = None,
+) -> ir.Table:
+    """
+    Drop rows with duplicate values.
+
+    Parameters
+    ----------
+    subset : str or list-of-strs, optional
+        The name or names of columns to compare for duplicate values
+    keep : str, optional
+        Which duplicate to keep: first or last
+    order_by : str or Expr, optional
+        The sort order for the duplicates to determine first or last
+
+    Returns
+    -------
+    Table
+
+    """
+    if keep not in ['first', 'last']:
+        raise ValueError('`keep` must be "first" or "last"')
+
+    if order_by is None:
+        raise ValueError(
+            '`order_by` must be specified for '
+            '`keep="first"` or `keep="last"`',
+        )
+
+    if subset is None:
+        subset = list(self.columns)
+    elif isinstance(subset, str):
+        subset = [subset]
+
+    # TODO: Workaround for bug in Ibis where ibis.desc/ibis.asc can't
+    #       be used in an order_by.
+    def order_func(obj: Any) -> Any:
+        func = ibis.asc if keep == 'first' else ibis.desc
+        return func(order_by).resolve(obj)
+
+    return self.group_by(subset).order_by(order_func)\
+        .mutate(**{'^ROW^ORDER^': ibis.row_number()})\
+        .filter(lambda x: x['^ROW^ORDER^'] == 0).drop('^ROW^ORDER^')
+
+
+ir.Table.drop_duplicates = _drop_duplicates
+
+
+def _shape(self: Any) -> Tuple[int, int]:
+    """Return the shape of the table."""
+    return self.count().execute(), len(self.columns)
+
+
+ir.Table.shape = property(_shape)
+
+
+def _dtypes(self: Any) -> pd.Series:
+    """Return the data types of the columns."""
+    items = list(self.schema.items())
+    return pd.Series([x[1] for x in items], index=[x[0] for x in items])
+
+
+ir.Table.dtypes = property(_dtypes)
