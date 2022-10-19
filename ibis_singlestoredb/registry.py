@@ -8,8 +8,6 @@ from typing import Callable
 from typing import Optional
 from typing import Sequence
 from typing import Set
-from typing import Tuple
-from typing import Union
 
 import ibis
 import ibis.backends.base.sql.compiler.translator as tr
@@ -573,118 +571,6 @@ def _grouped_describe(self: Any, *args: Any, **kwargs: Any) -> pd.DataFrame:
 ig.GroupedTable.describe = _grouped_describe
 
 
-def _corr(
-    self: Any,
-    index_name: Optional[str] = 'Variable',
-    diagonals: Union[float, int] = 1,
-    by: Optional[Union[str, list[str]]] = None,
-) -> pd.DataFrame:
-    """
-    Compute the correlation matrix for all numeric variables.
-
-    Parameters
-    ----------
-    index_name : str, optional
-        The name of the column containing the variable names
-    diagonals : float or int, optional
-        Values of the diagnol components
-    by : str or list-of-str, optional
-        Group by variables
-
-    Returns
-    -------
-    DataFrame
-
-    """
-    if isinstance(self, ig.GroupedTable):
-        table = self.table
-    else:
-        table = self
-
-    num_vars = []
-    for name, dtype in table.schema().items():
-        if isinstance(dtype, (dt.Integer, dt.Floating, dt.Decimal)):
-            num_vars.append(name)
-
-    from sqlalchemy_singlestoredb import array
-
-    group_vars = []
-    if by is not None:
-        if isinstance(by, str):
-            group_vars = [by]
-        else:
-            group_vars = by
-
-    query = sa.select(
-        *[sa.column(x) for x in group_vars], sa.func.corrmat(
-            sa.func.vec_pack_f64(
-                array(
-                    *[sa.column(x) for x in num_vars],
-                ),
-            ),
-        ),
-    ).select_from(table.compile().subquery())
-
-    if by is not None and by:
-        query = query.group_by(*[sa.column(x) for x in by])
-
-    n = len(num_vars)
-    out = []
-    df = table.sql(str(query)).execute()
-    for row in df.itertuples(index=False):
-        index = list(row[:-1])
-        corr = row[-1]
-        mat = np.zeros((n, n))
-        for i in range(n):
-            for j in range(i+1):
-                mat[i, j] = corr.pop(0)
-        mat = mat + np.transpose(mat)
-        for i in range(n):
-            mat[i, i] = diagonals
-
-        for i, item in enumerate(index):
-            index[i] = [item] * n
-
-        index.append(num_vars)
-
-        out.append(pd.DataFrame(mat, columns=num_vars, index=index))
-        out[-1].index.names = group_vars + [index_name]  # type: ignore
-
-    return pd.concat(out)
-
-
-ir.Table.corr = _corr
-
-
-def _grouped_corr(
-    self: Any,
-    index_name: Optional[str] = 'Variable',
-    diagonals: Union[float, int] = 1,
-) -> pd.DataFrame:
-    """
-    Compute the correlation matrix for all numeric variables.
-
-    Parameters
-    ----------
-    index_name : str, optional
-        The name of the column containing the variable names
-    diagonals : float or int, optional
-        Values of the diagnol components
-
-    Returns
-    -------
-    DataFrame
-
-    """
-    return _corr(
-        self, by=[x.get_name() for x in self.by],
-        index_name=index_name, diagonals=diagonals,
-    )
-
-
-ig.GroupedTable.corr = _grouped_corr
-
-
 def _describe_column(
     self: Any,
     percentiles: Sequence[float] = [0.25, 0.5, 0.75],
@@ -731,6 +617,14 @@ def _distinct_column(self: Any) -> ir.Expr:
 
 
 ir.AnyColumn.distinct = _distinct_column
+
+
+def _head_column(self: ir.AnyColumn, n: int = 5) -> ir.Expr:
+    """Return first ``n`` row values."""
+    return self.to_projection().head(n)[0]
+
+
+ir.AnyColumn.head = _head_column
 
 
 def _drop_duplicates(
@@ -782,20 +676,3 @@ def _drop_duplicates(
 
 
 ir.Table.drop_duplicates = _drop_duplicates
-
-
-def _shape(self: Any) -> Tuple[int, int]:
-    """Return the shape of the table."""
-    return self.count().execute(), len(self.columns)
-
-
-ir.Table.shape = property(_shape)
-
-
-def _dtypes(self: Any) -> pd.Series:
-    """Return the data types of the columns."""
-    items = list(self.schema.items())
-    return pd.Series([x[1] for x in items], index=[x[0] for x in items])
-
-
-ir.Table.dtypes = property(_dtypes)
