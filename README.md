@@ -38,6 +38,13 @@ Connecting to the HTTP API is done as follows:
 conn = ibis.singlestoredb.connect('http://user:password@host:8080/db_name')
 ```
 
+## Examples
+
+There are some example Jupyter notebooks in the
+[examples](https://github.com/singlestore-labs/ibis-singlestoredb/examples)
+directory.
+
+
 ## License
 
 This library is licensed under the [Apache 2.0 License](https://raw.githubusercontent.com/singlestore-labs/singlestoredb-python/main/LICENSE?token=GHSAT0AAAAAABMGV6QPNR6N23BVICDYK5LAYTVK5EA).
