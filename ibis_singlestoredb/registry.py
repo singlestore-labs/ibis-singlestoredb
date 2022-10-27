@@ -269,6 +269,7 @@ def _regex_extract(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
 operation_registry.update(
     {
         ops.Literal: _literal,
+        ops.IfNull: fixed_arity(sa.func.ifnull, 2),
         # strings
         ops.Substring: _substr,
         ops.StringFind: _string_find,
