@@ -612,14 +612,6 @@ def _describe_column(
 ir.AnyColumn.describe = _describe_column
 
 
-def _distinct_column(self: Any) -> ir.Expr:
-    """Return distinct values."""
-    return self.to_projection().distinct()[0]
-
-
-ir.AnyColumn.distinct = _distinct_column
-
-
 def _head_column(self: ir.AnyColumn, n: int = 5) -> ir.Expr:
     """Return first ``n`` row values."""
     return self.to_projection().head(n)[0]
