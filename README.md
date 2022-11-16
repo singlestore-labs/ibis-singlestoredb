@@ -41,7 +41,7 @@ conn = ibis.singlestoredb.connect('http://user:password@host:8080/db_name')
 ## Examples
 
 There are some example Jupyter notebooks in the
-[examples](https://github.com/singlestore-labs/ibis-singlestoredb/examples)
+[examples](https://github.com/singlestore-labs/ibis-singlestoredb/tree/main/examples)
 directory.
 
 
