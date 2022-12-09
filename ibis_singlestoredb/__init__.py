@@ -379,7 +379,7 @@ class Backend(BaseAlchemyBackend):
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer the schema of `query`."""
         result = self.con.execute(f'SELECT * FROM ({query}) _ LIMIT 0')
-        cursor = result.cursor._cursor
+        cursor = result.cursor
         fields = [
             (field.name, _type_from_cursor_info(descr, field))
             for descr, field in zip(cursor.description, cursor._result.fields)

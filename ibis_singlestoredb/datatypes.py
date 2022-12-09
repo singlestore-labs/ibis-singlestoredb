@@ -24,7 +24,7 @@ def _type_from_cursor_info(descr: Tuple[Any, ...], field: Any) -> dt.DataType:
     strings, because the protocol does not appear to preserve the logical
     type, only the physical type.
     """
-    _, type_code, _, _, field_length, scale, _ = descr
+    _, type_code, _, _, field_length, scale, _, _, _ = descr
     flags = _FieldFlags(field.flags)
     typename = _type_codes.get(type_code)
     if typename is None:
