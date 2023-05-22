@@ -1,47 +1,45 @@
 """The SingleStoreDB backend."""
 from __future__ import annotations
 
-import atexit
-import contextlib
+import re
 import warnings
 from typing import Any
 from typing import Dict
-from typing import Generator
+from typing import Iterable
 from typing import Optional
+from typing import Union
 
-import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 import ibis.util
 import pandas as pd
 import sqlalchemy as sa
-import sqlalchemy.dialects.mysql as singlestoredb
+import sqlalchemy_singlestoredb as singlestoredb
 from ibis.backends.base.sql.alchemy import BaseAlchemyBackend
-from ibis.backends.base.sql.registry.helpers import quote_identifier
-from ibis.expr.types import AnyColumn
-from pandas.io.json import build_table_schema
 from singlestoredb.connection import build_params
-from sqlalchemy_singlestoredb.base import SingleStoreDBDialect
 
 from . import functions as fn
 from .compiler import SingleStoreDBCompiler
 from .database import SingleStoreDBDatabase
 from .database import SingleStoreDBDatabaseTable
 from .datatypes import _type_from_cursor_info
+from .datatypes import SingleStoreDBDateTime
 from .expr import SingleStoreDBTable
+# from . import functions as fn
 
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 
 class Backend(BaseAlchemyBackend):
     name = 'singlestoredb'
-    compiler = SingleStoreDBCompiler
 
+    compiler = SingleStoreDBCompiler
     database_class = SingleStoreDBDatabase
     table_class = SingleStoreDBDatabaseTable
     table_expr_class = SingleStoreDBTable
+    supports_create_or_replace = False
 
     _database_name: Optional[str] = None
 
@@ -144,49 +142,51 @@ class Backend(BaseAlchemyBackend):
 
         self.database_name = alchemy_url.database
 
-        super().do_connect(
-            sa.create_engine(
-                alchemy_url,
-                echo=kwargs.get('echo', False), future=kwargs.get('future', False),
-            ),
-        )
+        engine = sa.create_engine(alchemy_url, poolclass=sa.pool.StaticPool)
+
+        @sa.event.listens_for(engine, 'connect')
+        def connect(
+            dbapi_connection: singlestoredb.Connection,
+            connection_record: Any,
+        ) -> None:
+            with dbapi_connection.cursor() as cur:
+                try:
+                    cur.execute("SET @@session.time_zone = 'UTC'")
+                except sa.exc.OperationalError:
+                    warnings.warn('Unable to set session timezone to UTC.')
+
+        super().do_connect(engine)
 
         self.sync_functions()
 
-#   @contextlib.contextmanager
-#   def begin(self) -> Generator[Any, Any, Any]:
-#       with super().begin() as bind:
-#           previous_timezone = bind.execute(
-#               'SELECT @@session.time_zone',
-#           ).scalar()
-#           unset_timezone = False
-#           try:
-#               bind.execute("SET @@session.time_zone = 'UTC'")
-#               unset_timezone = True
-#           except Exception as e:
-#               warnings.warn(f"Couldn't set singlestore timezone: {str(e)}")
-
-#           try:
-#               yield bind
-#           finally:
-#               if unset_timezone:
-#                   query = "SET @@session.time_zone = '{}'"
-#                   bind.execute(query.format(previous_timezone))
-
     def _table_from_schema(
-        self, name: str, schema: sch.Schema, database: str | None = None,
-        storage_type: Optional[str] = None,
+        self,
+        name: str,
+        schema: sch.Schema,
+        temp: bool = False,
+        database: Optional[str] = None,
+        **kwargs: Any,
     ) -> sa.Table:
         columns = self._columns_from_schema(name, schema)
-        kw = {}
+        prefixes = []
+        if temp:
+            prefixes.append(self._temporary_prefix)
+        storage_type = kwargs.pop('storage_type', None)
         if storage_type:
-            kw['prefixes'] = [storage_type.upper()]
-        return sa.Table(name, self.meta, *columns, **kw)
+            prefixes.append(storage_type.upper())
+        return sa.Table(
+            name,
+            sa.MetaData(),
+            *columns,
+            prefixes=prefixes,
+            quote=self.compiler.translator_class._quote_table_names,
+            **kwargs,
+        )
 
     def _merge_schema_overrides(
         self,
         schema: sch.Schema,
-        overrides: Dict[str, str] | sch.Schema,
+        overrides: Union[Dict[str, str], sch.Schema],
     ) -> sch.Schema:
         """
         Merge type overrides into a schema.
@@ -204,7 +204,7 @@ class Backend(BaseAlchemyBackend):
 
         """
         if not isinstance(overrides, sch.Schema):
-            overrides = sch.Schema.from_dict(overrides)
+            overrides = sch.Schema.from_tuples(list(overrides.items()))
 
         items = list(schema.items())
         for i, item in enumerate(items):
@@ -216,12 +216,12 @@ class Backend(BaseAlchemyBackend):
     def create_table(
         self,
         name: str,
-        expr: Optional[pd.DataFrame | ir.TableExpr] = None,
+        expr: Optional[Union[pd.DataFrame, ir.TableExpr]] = None,
         schema: Optional[sch.Schema] = None,
         database: Optional[str] = None,
         force: bool = False,
         storage_type: Optional[str] = None,
-        schema_overrides: Optional[Dict[str, str] | sch.Schema] = None,
+        schema_overrides: Optional[Union[Dict[str, str], sch.Schema]] = None,
     ) -> ir.Table:
         """
         Create a new table.
@@ -376,15 +376,46 @@ class Backend(BaseAlchemyBackend):
 
         return self.table(name)
 
+    @staticmethod
+    def _new_sa_metadata() -> sa.MetaData:
+        meta = sa.MetaData()
+
+        @sa.event.listens_for(meta, 'column_reflect')
+        def column_reflect(
+            inspector: Any,
+            table: Any,
+            column_info: Dict[str, Any],
+        ) -> None:
+            if isinstance(column_info['type'], singlestoredb.DATETIME):
+                column_info['type'] = SingleStoreDBDateTime()
+
+        return meta
+
+    def _metadata(self, query: str) -> Iterable[tuple[str, dt.DataType]]:
+        if (
+            re.search(r'^\s*SELECT\s', query, flags=re.MULTILINE | re.IGNORECASE)
+            is not None
+        ):
+            query = f'({query})'
+
+        with self.begin() as con:
+            result = con.exec_driver_sql(f'SELECT * FROM {query} _ LIMIT 0')
+            cursor = result.cursor
+            yield from (
+                (field.name, _type_from_cursor_info(descr, field))
+                for descr, field in zip(cursor.description, cursor._result.fields)
+            )
+
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         """Infer the schema of `query`."""
-        result = self.con.execute(f'SELECT * FROM ({query}) _ LIMIT 0')
-        cursor = result.cursor
-        fields = [
-            (field.name, _type_from_cursor_info(descr, field))
-            for descr, field in zip(cursor.description, cursor._result.fields)
-        ]
-        return sch.Schema.from_tuples(fields)
+        with self.begin() as con:
+            result = con.exec_driver_sql(f'SELECT * FROM ({query}) _ LIMIT 0')
+            cursor = result.cursor
+            fields = [
+                (field.name, _type_from_cursor_info(descr, field))
+                for descr, field in zip(cursor.description, cursor._result.fields)
+            ]
+            return sch.Schema.from_tuples(fields)
 
     def _get_temp_view_definition(
         self,
@@ -392,83 +423,3 @@ class Backend(BaseAlchemyBackend):
         definition: sa.sql.compiler.Compiled,
     ) -> str:
         return f'CREATE VIEW {name} AS {definition}'
-
-    def _register_temp_view_cleanup(self, name: str, raw_name: str) -> None:
-        query = f'DROP VIEW IF EXISTS {name}'
-
-        def drop(self: Backend, raw_name: str, query: str) -> None:
-            self.con.execute(query)
-            self._temp_views.discard(raw_name)
-
-        atexit.register(drop, self, raw_name, query)
-
-
-# TODO(kszucs): unsigned integers
-
-
-@dt.dtype.register((singlestoredb.DOUBLE, singlestoredb.REAL))
-def singlestoredb_double(satype: Any, nullable: bool = True) -> dt.Float64:
-    return dt.Float64(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.FLOAT)
-def singlestoredb_float(satype: Any, nullable: bool = True) -> dt.Float32:
-    return dt.Float32(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.TINYINT)
-def singlestoredb_tinyint(satype: Any, nullable: bool = True) -> dt.Int8:
-    return dt.Int8(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.YEAR)
-def singlestoredb_year(dialect: Any, satype: Any, nullable: bool = True) -> dt.Int16:
-    return dt.Int16(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.BLOB)
-def singlestoredb_blob(satype: Any, nullable: bool = True) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.BIT)
-def singlestoredb_bit(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.BINARY)
-def singlestoredb_binary(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.VARBINARY)
-def singlestoredb_varbinary(
-    dialect: Any,
-    satype: Any,
-    nullable: bool = True,
-) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.LONGBLOB)
-def singlestoredb_longblob(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.MEDIUMBLOB)
-def singlestoredb_mediumblob(
-    dialect: Any,
-    satype: Any,
-    nullable: bool = True,
-) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.TINYBLOB)
-def singlestoredb_tinyblob(dialect: Any, satype: Any, nullable: bool = True) -> dt.Binary:
-    return dt.Binary(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.JSON)
-def singlestoredb_json(dialect: Any, satype: Any, nullable: bool = True) -> dt.JSON:
-    return dt.JSON(nullable=nullable)

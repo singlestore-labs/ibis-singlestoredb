@@ -1,65 +1,63 @@
-#!/usr/bin/env python
-"""SingleStoreDB function registry."""
 from __future__ import annotations
 
+import contextlib
+import functools
 import operator
+import string
 from typing import Any
-from typing import Callable
+from typing import Dict
 from typing import Optional
 from typing import Sequence
 from typing import Set
+from typing import Union
 
 import ibis
-import ibis.backends.base.sql.compiler.translator as tr
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-import ibis.expr.types.groupby as ig
+import ibis.expr.types.groupby as gby
 import numpy as np
 import pandas as pd
 import sqlalchemy as sa
+from ibis.backends.base.sql.alchemy import AlchemyExprTranslator as ExprTranslator
 from ibis.backends.base.sql.alchemy import fixed_arity
 from ibis.backends.base.sql.alchemy import sqlalchemy_operation_registry
 from ibis.backends.base.sql.alchemy import sqlalchemy_window_functions_registry
 from ibis.backends.base.sql.alchemy import unary
+from ibis.backends.base.sql.alchemy.geospatial import geospatial_supported
+from ibis.backends.base.sql.alchemy.registry import geospatial_functions
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import GenericFunction
+
 
 operation_registry = sqlalchemy_operation_registry.copy()
+
+# NOTE: window functions are available from MySQL 8 and MariaDB 10.2
 operation_registry.update(sqlalchemy_window_functions_registry)
 
+if geospatial_supported:
+    operation_registry.update(geospatial_functions)
 
-def _substr(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+
+def _substr(t: ExprTranslator, op: ops.Substring) -> ir.Expr:
     f = sa.func.substr
 
-    arg, start, length = expr.op().args
+    sa_arg = t.translate(op.arg)
+    sa_start = t.translate(op.start)
 
-    sa_arg = t.translate(arg)
-    sa_start = t.translate(start)
-
-    if length is None:
+    if op.length is None:
         return f(sa_arg, sa_start + 1)
-    else:
-        sa_length = t.translate(length)
-        return f(sa_arg, sa_start + 1, sa_length)
+
+    sa_length = t.translate(op.length)
+    return f(sa_arg, sa_start + 1, sa_length)
 
 
-def _capitalize(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    (arg,) = expr.op().args
-    sa_arg = t.translate(arg)
+def _capitalize(t: ExprTranslator, op: ops.Capitalize) -> ir.Expr:
+    sa_arg = t.translate(op.arg)
     return sa.func.concat(
         sa.func.ucase(sa.func.left(sa_arg, 1)), sa.func.substring(sa_arg, 2),
     )
-
-
-def _extract(fmt: str) -> Callable[[tr.ExprTranslator, ir.Expr], ir.Expr]:
-    def translator(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-        (arg,) = expr.op().args
-        sa_arg = t.translate(arg)
-        if fmt == 'millisecond':
-            return sa.extract('microsecond', sa_arg) % 1000
-        return sa.extract(fmt, sa_arg)
-
-    return translator
 
 
 _truncate_formats = {
@@ -73,32 +71,32 @@ _truncate_formats = {
 }
 
 
-def _truncate(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, unit = expr.op().args
-    sa_arg = t.translate(arg)
+def _truncate(
+    t: ExprTranslator,
+    op: Union[ops.TimestampTruncate, ops.DateTruncate, ops.TimeTruncate],
+) -> ir.Expr:
+    sa_arg = t.translate(op.arg)
     try:
-        fmt = _truncate_formats[unit]
+        fmt = _truncate_formats[op.unit.short]
     except KeyError:
-        raise com.UnsupportedOperationError(
-            f'Unsupported truncate unit {unit}',
-        )
+        raise com.UnsupportedOperationError(f'Unsupported truncate unit {op.unit}')
     return sa.func.date_format(sa_arg, fmt)
 
 
-def _cast(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, typ = expr.op().args
-
+def _cast(t: ExprTranslator, op: ops.Cast) -> ir.Expr:
+    arg = op.arg
+    to = op.to
     sa_arg = t.translate(arg)
-    sa_type = t.get_sqla_type(typ)
+    sa_type = t.get_sqla_type(op.to)
 
     # specialize going from an integer type to a timestamp
-    if isinstance(arg.type(), dt.Integer) and isinstance(sa_type, sa.DateTime):
+    if isinstance(arg.output_dtype, dt.Integer) and isinstance(sa_type, sa.DateTime):
         return sa.func.convert_tz(sa.func.from_unixtime(sa_arg), 'SYSTEM', 'UTC')
 
-    if arg.type().equals(dt.binary) and typ.equals(dt.string):
+    if arg.output_dtype.equals(dt.binary) and to.equals(dt.string):
         return sa.func.hex(sa_arg)
 
-    if typ.equals(dt.binary):
+    if to.equals(dt.binary):
         #  decode yields a column of memoryview which is annoying to deal with
         # in pandas. CAST(expr AS BYTEA) is correct and returns byte strings.
         return sa.cast(sa_arg, sa.LargeBinary())
@@ -106,128 +104,107 @@ def _cast(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.cast(sa_arg, sa_type)
 
 
-def _log(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, base = expr.op().args
-    sa_arg = t.translate(arg)
-    sa_base = t.translate(base)
-    return sa.func.log(sa_base, sa_arg)
-
-
-def _identical_to(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    left, right = args = expr.op().args
-    if left.equals(right):
-        return True
-    else:
-        left, right = map(t.translate, args)
-        return left.op('<=>')(right)
-
-
-def _round(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, digits = expr.op().args
-    sa_arg = t.translate(arg)
-
-    if digits is None:
+def _round(t: ExprTranslator, op: ops.Round) -> ir.Expr:
+    sa_arg = t.translate(op.arg)
+    if op.digits is None:
         sa_digits = 0
     else:
-        sa_digits = t.translate(digits)
-
+        sa_digits = t.translate(op.digits)
     return sa.func.round(sa_arg, sa_digits)
 
 
-def _quantile(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, quantile, interpolation = expr.op().args
-    sa_arg = t.translate(arg)
-    sa_quantile = t.translate(quantile)
+def _quantile(t: ExprTranslator, op: ops.Quantile) -> ir.Expr:
+    sa_arg = t.translate(op.arg)
+    sa_quantile = t.translate(op.quantile)
     return sa.func.approx_percentile(sa_arg, sa_quantile)
 
 
-def _floor_divide(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    left, right = map(t.translate, expr.op().args)
-    return sa.func.floor(left / right)
-
-
-def _string_join(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    sep, elements = expr.op().args
-    return sa.func.concat_ws(t.translate(sep), *map(t.translate, elements))
-
-
-def _interval_from_integer(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    arg, unit = expr.op().args
-    if unit in {'ms', 'ns'}:
+def _interval_from_integer(t: ExprTranslator, op: ops.IntervalFromInteger) -> ir.Expr:
+    if op.unit.short in {'ms', 'ns'}:
         raise com.UnsupportedOperationError(
-            'SingleStoreDB does not allow operation '
-            'with INTERVAL offset {}'.format(unit),
+            f'SingloStoreDB does not allow operation with INTERVAL offset {op.unit}',
         )
 
-    sa_arg = t.translate(arg)
-    text_unit = expr.type().resolution.upper()
+    sa_arg = t.translate(op.arg)
+    text_unit = op.output_dtype.resolution.upper()
 
     # XXX: Is there a better way to handle this? I.e. can we somehow use
     # the existing bind parameter produced by translate and reuse its name in
     # the string passed to sa.text?
     if isinstance(sa_arg, sa.sql.elements.BindParameter):
-        return sa.text(f'INTERVAL :arg {text_unit}').bindparams(
-            arg=sa_arg.value,
-        )
+        return sa.text(f'INTERVAL :arg {text_unit}').bindparams(arg=sa_arg.value)
     return sa.text(f'INTERVAL {sa_arg} {text_unit}')
 
 
-def _timestamp_diff(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    left, right = expr.op().args
-    sa_left = t.translate(left)
-    sa_right = t.translate(right)
-    return sa.func.timestampdiff(sa.text('SECOND'), sa_right, sa_left)
-
-
-def _literal(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    if isinstance(expr, ir.IntervalScalar):
-        if expr.type().unit in {'ms', 'ns'}:
+def _literal(t: ExprTranslator, op: ops.Literal) -> ir.Expr:
+    if op.output_dtype.is_interval():
+        if op.output_dtype.unit.short in {'ms', 'ns'}:
             raise com.UnsupportedOperationError(
-                'SingleStoreDB does not allow operation '
-                'with INTERVAL offset {}'.format(expr.type().unit),
+                'SingloStoreDB does not allow operation '
+                f'with INTERVAL offset {op.output_dtype.unit}',
             )
-        text_unit = expr.type().resolution.upper()
-        value = expr.op().value
-        return sa.text(f'INTERVAL :value {text_unit}').bindparams(value=value)
-    elif isinstance(expr, ir.SetScalar):
-        return list(map(sa.literal, expr.op().value))
+        text_unit = op.output_dtype.resolution.upper()
+        sa_text = sa.text(f'INTERVAL :value {text_unit}')
+        return sa_text.bindparams(value=op.value)
+
+    elif op.output_dtype.is_binary():
+        # the cast to BINARY is necessary here, otherwise the data come back as
+        # Python strings
+        #
+        # This lets the database handle encoding rather than ibis
+        return sa.cast(sa.literal(op.value), type_=sa.BINARY())
+
+    value = op.value
+    with contextlib.suppress(AttributeError):
+        value = value.to_pydatetime()
+
+    return sa.literal(value)
+
+
+def _group_concat(t: ExprTranslator, op: ops.GroupConcat) -> ir.Expr:
+    if op.where is not None:
+        arg = t.translate(ops.Where(op.where, op.arg, ibis.NA))
     else:
-        value = expr.op().value
-        if isinstance(value, pd.Timestamp):
-            value = value.to_pydatetime()
-        return sa.literal(value)
+        arg = t.translate(op.arg)
+    sep = t.translate(op.sep)
+    return sa.func.group_concat(arg.op('SEPARATOR')(sep))
 
 
-def _random(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    return sa.func.random()
-
-
-def _group_concat(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    op = expr.op()
-    arg, sep, where = op.args
-    if where is not None:
-        case = where.ifelse(arg, ibis.NA)
-        arg = t.translate(case)
+def _json_get_item(t: ExprTranslator, op: ops.JSONGetItem) -> ir.Expr:
+    arg = t.translate(op.arg)
+    index = t.translate(op.index)
+    if op.index.output_dtype.is_integer():
+        path = '$[' + sa.cast(index, sa.TEXT) + ']'
     else:
-        arg = t.translate(arg)
-    return sa.func.group_concat(arg.op('SEPARATOR')(t.translate(sep)))
+        path = '$.' + index
+    return sa.func.json_extract(arg, path)
 
 
-def _day_of_week_index(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    (arg,) = expr.op().args
-    left = sa.func.dayofweek(t.translate(arg)) - 2
-    right = 7
-    return ((left % right) + right) % right
+class _singlestoredb_trim(GenericFunction):
+    inherit_cache = True
+
+    def __init__(self, input: ir.Expr, side: str) -> None:
+        super().__init__(input)
+        self.type = sa.VARCHAR()
+        self.side = side
 
 
-def _day_of_week_name(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    (arg,) = expr.op().args
-    return sa.func.dayname(t.translate(arg))
+@compiles(_singlestoredb_trim, 'singlestoredb')
+def compiles_singlestoredb_trim(
+    element: ir.Expr,
+    compiler: Any,
+    **kw: Dict[str, Any],
+) -> ir.Expr:
+    arg = compiler.function_argspec(element, **kw)
+    side = element.side.upper()
+    # has to be called once for every whitespace character because singlestoredb
+    # interprets `char` literally, not as a set of characters like Python
+    return functools.reduce(
+        lambda arg, char: f"TRIM({side} '{char}' FROM {arg})", string.whitespace, arg,
+    )
 
 
-def _string_find(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    op = expr.op()
-
+def _string_find(t: ExprTranslator, op: ops.StringFind) -> ir.Expr:
     if op.end is not None:
         raise NotImplementedError('`end` not yet implemented')
 
@@ -241,92 +218,127 @@ def _string_find(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
     return sa.func.locate(t.translate(op.substr), t.translate(op.arg)) - 1
 
 
-def _string_contains(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    return _string_find(t, expr) >= 0
+def _string_contains(t: ExprTranslator, op: ops.StringContains) -> ir.Expr:
+    return (sa.func.locate(t.translate(op.needle), t.translate(op.haystack)) - 1) >= 0
 
 
-def _approx_median(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    args = expr.op().args
-    return sa.func.median(t.translate(args[0]))
+def _approx_median(t: ExprTranslator, op: ops.ApproxMedian) -> ir.Expr:
+    return sa.func.median(t.translate(op.arg))
 
 
-def _regex_search(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    args = expr.op().args
-    return sa.func.regexp_instr(*[t.translate(x) for x in args], sa.literal('g')) > 0
+def _regex_search(t: ExprTranslator, op: ops.RegexSearch) -> ir.Expr:
+    args = (op.arg, op.pattern)
+    return sa.type_coerce(
+        sa.func.regexp_instr(*[t.translate(x) for x in args], sa.literal('g')) > 0,
+        sa.BOOLEAN,
+    )
 
 
-def _regex_replace(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
+def _regex_replace(t: ExprTranslator, op: ops.RegexReplace) -> ir.Expr:
     # TODO: Requires regexp_format='advanced'
-    args = expr.op().args
+    args = (op.arg, op.pattern, op.replacement)
     return sa.func.regexp_replace(*[t.translate(x) for x in args], sa.literal('g'))
 
 
-def _regex_extract(t: tr.ExprTranslator, expr: ir.Expr) -> ir.Expr:
-    args = expr.op().args
+def _regex_extract(t: ExprTranslator, op: ops.RegexExtract) -> ir.Expr:
+    args = (op.arg, op.pattern, op.index)
     return sa.func.regexp_extract(*[t.translate(x) for x in args], sa.literal('g'))
 
 
 operation_registry.update(
     {
         ops.Literal: _literal,
+        ops.Cast: _cast,
         ops.IfNull: fixed_arity(sa.func.ifnull, 2),
+        # static checks are not happy with using "if" as a property
+        ops.Where: fixed_arity(getattr(sa.func, 'if'), 3),
         # strings
         ops.Substring: _substr,
         ops.StringFind: _string_find,
         ops.StringContains: _string_contains,
         ops.Capitalize: _capitalize,
+        ops.FindInSet: (
+            lambda t, op: (
+                sa.func.find_in_set(
+                    t.translate(op.needle),
+                    sa.func.concat_ws(',', *map(t.translate, op.values)),
+                )
+                - 1
+            )
+        ),
+        # LIKE in singlestoredb is case insensitive
+        ops.StartsWith: fixed_arity(
+            lambda arg, start: sa.type_coerce(
+                arg.op('LIKE BINARY')(sa.func.concat(start, '%')), sa.BOOLEAN(),
+            ),
+            2,
+        ),
+        ops.EndsWith: fixed_arity(
+            lambda arg, end: sa.type_coerce(
+                arg.op('LIKE BINARY')(sa.func.concat('%', end)), sa.BOOLEAN(),
+            ),
+            2,
+        ),
         ops.RegexSearch: _regex_search,
         ops.RegexReplace: _regex_replace,
         ops.RegexExtract: _regex_extract,
-        ops.Cast: _cast,
         # math
-        ops.Log: _log,
+        ops.Log: fixed_arity(lambda arg, base: sa.func.log(base, arg), 2),
         ops.Log2: unary(sa.func.log2),
         ops.Log10: unary(sa.func.log10),
         ops.Round: _round,
-        ops.RandomScalar: _random,
         ops.Quantile: _quantile,
         # dates and times
-        ops.Date: unary(sa.func.date),
         ops.DateAdd: fixed_arity(operator.add, 2),
         ops.DateSub: fixed_arity(operator.sub, 2),
         ops.DateDiff: fixed_arity(sa.func.datediff, 2),
         ops.TimestampAdd: fixed_arity(operator.add, 2),
         ops.TimestampSub: fixed_arity(operator.sub, 2),
-        ops.TimestampDiff: _timestamp_diff,
+        ops.TimestampDiff: fixed_arity(
+            lambda left, right: sa.func.timestampdiff(sa.text('SECOND'), right, left), 2,
+        ),
+        ops.StringToTimestamp: fixed_arity(
+            lambda arg, format_str: sa.func.str_to_date(arg, format_str), 2,
+        ),
         ops.DateTruncate: _truncate,
         ops.TimestampTruncate: _truncate,
         ops.IntervalFromInteger: _interval_from_integer,
         ops.Strftime: fixed_arity(sa.func.date_format, 2),
-        ops.ExtractYear: _extract('year'),
-        ops.ExtractMonth: _extract('month'),
-        ops.ExtractDay: _extract('day'),
-        ops.ExtractDayOfYear: unary('dayofyear'),
-        ops.ExtractQuarter: _extract('quarter'),
-        ops.ExtractEpochSeconds: unary('UNIX_TIMESTAMP'),
-        ops.ExtractWeekOfYear: fixed_arity('weekofyear', 1),
-        ops.ExtractHour: _extract('hour'),
-        ops.ExtractMinute: _extract('minute'),
-        ops.ExtractSecond: _extract('second'),
-        ops.ExtractMillisecond: _extract('millisecond'),
+        ops.ExtractDayOfYear: unary(sa.func.dayofyear),
+        ops.ExtractEpochSeconds: unary(sa.func.UNIX_TIMESTAMP),
+        ops.ExtractWeekOfYear: unary(sa.func.weekofyear),
+        ops.ExtractMillisecond: fixed_arity(
+            lambda arg: sa.func.floor(sa.extract('microsecond', arg) / 1000), 1,
+        ),
+        ops.TimestampNow: fixed_arity(sa.func.now, 0),
         # reductions
         ops.ApproxMedian: _approx_median,
-        #       ops.BitAnd: reduction(sa.func.bit_and),
-        #       ops.BitOr: reduction(sa.func.bit_or),
-        #       ops.BitXor: reduction(sa.func.bit_xor),
-        #       ops.Variance: variance_reduction('var'),
-        #       ops.StandardDev: variance_reduction('stddev'),
-        #       ops.IdenticalTo: _identical_to,
-        #       ops.TimestampNow: fixed_arity(sa.func.now, 0),
         # others
         ops.GroupConcat: _group_concat,
-        ops.DayOfWeekIndex: _day_of_week_index,
-        ops.DayOfWeekName: _day_of_week_name,
-        #       ops.HLLCardinality: reduction(
-        #           lambda arg: sa.func.count(arg.distinct()),
-        #       ),
+        ops.DayOfWeekIndex: fixed_arity(
+            lambda arg: (sa.func.dayofweek(arg) + 5) % 7, 1,
+        ),
+        ops.DayOfWeekName: fixed_arity(lambda arg: sa.func.dayname(arg), 1),
+        ops.JSONGetItem: _json_get_item,
+        ops.Strip: unary(lambda arg: _singlestoredb_trim(arg, 'both')),
+        ops.LStrip: unary(lambda arg: _singlestoredb_trim(arg, 'leading')),
+        ops.RStrip: unary(lambda arg: _singlestoredb_trim(arg, 'trailing')),
     },
 )
+
+_invalid_operations = {
+    ops.CumulativeAll,
+    ops.CumulativeAny,
+    ops.CumulativeMax,
+    ops.CumulativeMean,
+    ops.CumulativeMin,
+    ops.CumulativeSum,
+    ops.NTile,
+}
+
+operation_registry = {
+    k: v for k, v in operation_registry.items() if k not in _invalid_operations
+}
 
 
 def _describe_table(
@@ -336,7 +348,7 @@ def _describe_table(
     exclude: Optional[Sequence[Any]] = None,
     datetime_is_numeric: bool = False,
     stats: Optional[Sequence[str]] = None,
-    by: Optional[Sequence[str | ir.Expr]] = None,
+    by: Optional[Sequence[Union[str, ir.Expr]]] = None,
     having: Optional[Sequence[ir.Expr]] = None,
 ) -> ir.TableExpr:
     """
@@ -409,7 +421,7 @@ def _describe_table(
         exclude = [exclude]
 
     include_map = {
-        np.object: 'object', np.datetime64: 'datetime',
+        np.datetime64: 'datetime',
         'datetime64': 'datetime', np.timedelta64: 'timedelta',
         'timedelta64': 'timedelta', 'category': 'object',
         'datetimetz': 'datetime', 'datetime64[ns, tz]': 'datetime',
@@ -465,7 +477,7 @@ def _describe_table(
     for name, dtype in include_vars:
         if isinstance(dtype, (dt.Timestamp, dt.Date, dt.Time, dt.Interval)):
             type_stats = type_stats.union(dt_stats)
-        elif isinstance(dtype, (dt.String, dt.Binary, dt.Set, dt.Enum)):
+        elif isinstance(dtype, (dt.String, dt.Binary, dt.Array, dt.Enum)):
             type_stats = type_stats.union(str_stats)
         else:
             type_stats = type_stats.union(num_stats)
@@ -569,7 +581,7 @@ def _grouped_describe(self: Any, *args: Any, **kwargs: Any) -> pd.DataFrame:
                      .select(lambda x: x).sort_by([x.get_name() for x in self.by])
 
 
-ig.GroupedTable.describe = _grouped_describe
+gby.GroupedTable.describe = _grouped_describe
 
 
 def _describe_column(
@@ -622,9 +634,9 @@ ir.AnyColumn.head = _head_column
 
 def _drop_duplicates(
     self: Any,
-    subset: Optional[str | Sequence[str]] = None,
+    subset: Optional[Union[str, Sequence[str]]] = None,
     keep: str = 'first',
-    order_by: Optional[str | Sequence[str] | ir.Expr] = None,
+    order_by: Optional[Union[str, Sequence[str], ir.Expr]] = None,
 ) -> ir.Table:
     """
     Drop rows with duplicate values.

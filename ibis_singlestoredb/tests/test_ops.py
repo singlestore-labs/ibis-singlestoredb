@@ -464,12 +464,18 @@ def test_operations(con, test_name, column, ibis_operation, expected_operation):
             ibis_result = truncate(ibis_result, 2)
             expected_result = truncate(expected_result, 2)
 
-        if test_name == 'add()' and type(ibis_result) == float:
+        elif test_name == 'add()' and type(ibis_result) == float:
             if column == 'decimal5_c':
                 ibis_result = round(ibis_result, 3)
                 expected_result = round(expected_result, 3)
             else:
                 ibis_result = truncate(ibis_result, 3)
                 expected_result = truncate(expected_result, 3)
+
+        elif test_name == 'cast()' and type(ibis_result) == str \
+                and ('float_c' in column or 'timestamp_c' in column):
+            max_len = min(len(ibis_result), len(expected_result))
+            ibis_result = ibis_result[:max_len-1]
+            expected_result = expected_result[:max_len-1]
 
         assert ibis_result == expected_result

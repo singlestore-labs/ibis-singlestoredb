@@ -389,7 +389,7 @@ def _make_udf(
             setattr(types.FloatingValue, name, eval_func)
 
     @ibis.singlestoredb.add_operation(func_type)
-    def _eval_func(t: tr.ExprTranslator, expr: types.Expr) -> types.Expr:
-        return getattr(sa.func, name)(*[t.translate(x) for x in expr.op().args])
+    def _eval_func(t: tr.ExprTranslator, op: ops.ValueOp) -> types.Expr:
+        return getattr(sa.func, name)(*[t.translate(x) for x in op.args])
 
     return eval_func

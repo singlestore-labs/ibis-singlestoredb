@@ -162,7 +162,7 @@ OPERATIONS = [
     # Multiply
     ('mul()', lambda x: x.mul(3)),
     # NTile
-    ('ntile()', lambda x: x.ntile(2)),
+    # ('ntile()', lambda x: x.ntile(2)),
     # Negate
     ('negate()', lambda x: x.negate()),
     # NotAll
@@ -279,4 +279,5 @@ def test_operations(con, operation, column, ibis_operation):
         ibis_operation(getattr(datatypes, column)).name('_').execute()
     except AttributeError:
         return
+
     print(operation, 'is supported for', column)

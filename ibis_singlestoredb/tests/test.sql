@@ -26,7 +26,7 @@ create table if not exists datatypes (
     text_c text,
     text4_c text(4),
     blob_c blob,
-    enum_sml_c enum('s', 'm', 'l'),
+    enum_sml_c enum('small', 'medium', 'large'),
     set_abcd_c set('a', 'b', 'c', 'd'),
     negative_int_c int,
     negative_float_c float,
