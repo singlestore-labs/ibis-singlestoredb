@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from functools import partial
 from typing import Any
-from typing import Callable
 from typing import Tuple
 
 import ibis.expr.datatypes as dt
-import sqlalchemy as sa
+import sqlalchemy.types as sat
 import sqlalchemy_singlestoredb as singlestoredb
-from ibis.backends.base.sql.alchemy import to_sqla_type
-from sqlalchemy_singlestoredb.base import SingleStoreDBDialect
+from ibis.backends.base.sql.alchemy.datatypes import AlchemyType
+from ibis.backends.base.sql.alchemy.datatypes import UUID
+from ibis.common.exceptions import UnsupportedOperationError
 
 # binary character set
 # used to distinguish blob binary vs blob text
@@ -36,6 +36,8 @@ def _type_from_cursor_info(descr: Tuple[Any, ...], field: Any) -> dt.DataType:
             f'SingleStoreDB type code {type_code:d} is not supported',
         )
 
+    kwargs = {}
+
     if typename in ('DECIMAL', 'NEWDECIMAL'):
         precision = _decimal_length_to_precision(
             length=field_length,
@@ -49,6 +51,17 @@ def _type_from_cursor_info(descr: Tuple[Any, ...], field: Any) -> dt.DataType:
 
     elif typename == 'YEAR':
         typ = dt.uint8
+
+    elif typename == 'TIMESTAMP':
+        typ = dt.Timestamp
+        kwargs['timezone'] = 'UTC'
+        # if scale > 0:
+        #     kwargs['scale'] = scale
+
+    elif typename == 'DATETIME':
+        typ = dt.Timestamp
+        # if scale > 0:
+        #     kwargs['scale'] = scale
 
     elif flags.is_set:
         # sets are limited to strings
@@ -68,7 +81,7 @@ def _type_from_cursor_info(descr: Tuple[Any, ...], field: Any) -> dt.DataType:
         typ = _type_mapping[typename]
 
     # projection columns are always nullable
-    return typ(nullable=True)
+    return typ(nullable=True, **kwargs)
 
 
 # ported from my_decimal.h:my_decimal_length_to_precision in mariadb
@@ -170,108 +183,115 @@ class _FieldFlags:
         return (self.NUM & self.value) != 0
 
 
-@dt.dtype.register(SingleStoreDBDialect, (sa.NUMERIC, singlestoredb.NUMERIC))
-def sa_singlestoredb_numeric(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    # https://dev.mysql.com/doc/refman/8.0/en/fixed-point-types.html
-    return dt.Decimal(satype.precision or 10, satype.scale or 0, nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.YEAR)
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.TINYINT)
-def sa_singlestoredb_tinyint(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Int8(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.BIT)
-def sa_singlestoredb_bit(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    if 1 <= (length := satype.length) <= 8:
-        return dt.Int8(nullable=nullable)
-    elif 9 <= length <= 16:
-        return dt.Int16(nullable=nullable)
-    elif 17 <= length <= 32:
-        return dt.Int32(nullable=nullable)
-    elif 33 <= length <= 64:
-        return dt.Int64(nullable=nullable)
-    else:
-        raise ValueError(f'Invalid SingleStoreDB BIT length: {length:d}')
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.FLOAT)
-def sa_real(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Float32(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.TIMESTAMP)
-def sa_singlestoredb_timestamp(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Timestamp(timezone='UTC', nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.DATETIME)
-def sa_singlestoredb_datetime(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Timestamp(nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.SET)
-def sa_singlestoredb_set(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Array(dt.string, nullable=nullable)
-
-
-@dt.dtype.register(SingleStoreDBDialect, singlestoredb.DOUBLE)
-def sa_singlestoredb_double(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    # TODO: handle asdecimal=True
-    return dt.Float64(nullable=nullable)
-
-
-@dt.dtype.register(
-    SingleStoreDBDialect,
-    (
-        singlestoredb.TINYBLOB,
-        singlestoredb.MEDIUMBLOB,
-        singlestoredb.BLOB,
-        singlestoredb.LONGBLOB,
-        singlestoredb.BINARY,
-        singlestoredb.VARBINARY,
-    ),
-)
-def sa_binary(_: Any, satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Binary(nullable=nullable)
-
-
-# TODO(kszucs): unsigned integers
-
-
-@dt.dtype.register((singlestoredb.DOUBLE, singlestoredb.REAL))
-def singlestoredb_double(satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Float64(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.FLOAT)
-def singlestoredb_float(satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Float32(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.TINYINT)
-def singlestoredb_tinyint(satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Int8(nullable=nullable)
-
-
-@dt.dtype.register(singlestoredb.BLOB)
-def singlestoredb_blob(satype: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Binary(nullable=nullable)
-
-
 class SingleStoreDBDateTime(singlestoredb.DATETIME):
     """Custom DATETIME type for SingleStoreDB that handles zero values."""
 
-    def result_processor(self, *_: Any) -> Callable[..., Any]:
+    def result_processor(self, *_: Any) -> Any:
         return lambda v: None if v == '0000-00-00 00:00:00' else v
 
 
-@dt.dtype.register(SingleStoreDBDateTime)
-def singlestoredb_timestamp(_: Any, nullable: bool = True) -> dt.DataType:
-    return dt.Timestamp(nullable=nullable)
+_to_singlestoredb_types = {
+    dt.Boolean: singlestoredb.BOOLEAN,
+    dt.Int8: singlestoredb.TINYINT,
+    dt.Int16: singlestoredb.SMALLINT,
+    dt.Int32: singlestoredb.INTEGER,
+    dt.Int64: singlestoredb.BIGINT,
+    dt.Float16: singlestoredb.FLOAT,
+    dt.Float32: singlestoredb.FLOAT,
+    dt.Float64: singlestoredb.DOUBLE,
+    dt.String: singlestoredb.TEXT,
+    dt.JSON: singlestoredb.JSON,
+    dt.Timestamp: SingleStoreDBDateTime,
+}
+
+_from_singlestoredb_types = {
+    singlestoredb.BIGINT: dt.Int64,
+    singlestoredb.BINARY: dt.Binary,
+    singlestoredb.BLOB: dt.Binary,
+    singlestoredb.BOOLEAN: dt.Boolean,
+    singlestoredb.DATETIME: dt.Timestamp,
+    singlestoredb.DOUBLE: dt.Float64,
+    singlestoredb.FLOAT: dt.Float32,
+    singlestoredb.INTEGER: dt.Int32,
+    singlestoredb.JSON: dt.JSON,
+    singlestoredb.LONGBLOB: dt.Binary,
+    singlestoredb.LONGTEXT: dt.String,
+    singlestoredb.MEDIUMBLOB: dt.Binary,
+    singlestoredb.MEDIUMINT: dt.Int32,
+    singlestoredb.MEDIUMTEXT: dt.String,
+    singlestoredb.REAL: dt.Float64,
+    singlestoredb.SMALLINT: dt.Int16,
+    singlestoredb.TEXT: dt.String,
+    singlestoredb.DATE: dt.Date,
+    singlestoredb.TINYBLOB: dt.Binary,
+    singlestoredb.TINYINT: dt.Int8,
+    singlestoredb.TINYTEXT: dt.String,
+    singlestoredb.VARBINARY: dt.Binary,
+    singlestoredb.VARCHAR: dt.String,
+    singlestoredb.ENUM: dt.String,
+    singlestoredb.CHAR: dt.String,
+    singlestoredb.TIME: dt.Time,
+    singlestoredb.YEAR: dt.UInt8,
+    SingleStoreDBDateTime: dt.Timestamp,
+    UUID: dt.String,
+}
+
+_unsigned_int_map = {
+    dt.Int8: dt.UInt8,
+    dt.Int16: dt.UInt16,
+    dt.Int32: dt.UInt32,
+    dt.Int64: dt.UInt64,
+}
 
 
-@to_sqla_type.register(SingleStoreDBDialect, dt.Timestamp)
-def _singlestoredb_timestamp(*_: Any) -> dt.DataType:
-    return SingleStoreDBDateTime()
+class SingleStoreDBType(AlchemyType):
+
+    dialect = 'singlestoredb'
+
+    @classmethod
+    def from_ibis(cls, dtype: Any) -> Any:
+        try:
+            out = _to_singlestoredb_types[type(dtype)]
+            if isinstance(dtype, dt.Timestamp):
+                if getattr(dtype, 'timezone', 'UTC') not in [False, None, 'UTC', 'utc']:
+                    raise UnsupportedOperationError('All timestamps must be in UTC')
+                scale = getattr(dtype, 'scale', 0)
+                if scale:
+                    out = out(fsp=scale)
+                else:
+                    out = out()
+            elif isinstance(dtype, dt.Decimal):
+                out = out(
+                    precision=getattr(dtype, 'precision', None) or None,
+                    scale=getattr(dtype, 'scale', None) or None,
+                )
+            elif isinstance(dtype, dt.UnsignedInteger):
+                out = out(unsigned=True)
+            return out
+        except KeyError:
+            return super().from_ibis(dtype)
+
+    @classmethod
+    def to_ibis(cls, typ: Any, nullable: bool = True) -> Any:
+        if isinstance(typ, (sat.NUMERIC, singlestoredb.NUMERIC, singlestoredb.DECIMAL)):
+            return dt.Decimal(typ.precision or 10, typ.scale or 0, nullable=nullable)
+        elif isinstance(typ, singlestoredb.BIT):
+            return dt.Int64(nullable=nullable)
+        elif isinstance(
+            typ, (singlestoredb.TIMESTAMP, singlestoredb.DATETIME, SingleStoreDBDateTime),
+        ):
+            if getattr(typ, 'timezone', 'UTC') not in [False, None, 'UTC', 'utc']:
+                raise UnsupportedOperationError('All timestamps must be in UTC')
+            kwargs = dict(
+                # scale=getattr(typ, 'scale', None),
+                timezone=None if isinstance(typ, singlestoredb.DATETIME) else 'UTC',
+            )
+            return dt.Timestamp(nullable=nullable, **kwargs)
+        elif isinstance(typ, singlestoredb.SET):
+            return dt.Set(dt.string, nullable=nullable)
+        elif dtype := _from_singlestoredb_types[type(typ)]:
+            if getattr(typ, 'unsigned', False):
+                dtype = _unsigned_int_map.get(dtype, dtype)
+            return dtype(nullable=nullable)
+        else:
+            return super().to_ibis(typ, nullable=nullable)

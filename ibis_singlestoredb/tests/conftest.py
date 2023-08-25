@@ -6,20 +6,31 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Generator
+from typing import Iterable
 
 import ibis
 import pytest
-from ibis.backends.tests.base import BackendTest
+import sqlalchemy as sa
 from ibis.backends.tests.base import RoundHalfToEven
-from singlestoredb.connection import Connection
+from ibis.backends.tests.base import ServiceBackendTest
 from singlestoredb.tests import utils
 
 ibis.options.interactive = False
 ibis.options.sql.default_limit = None
 ibis.options.verbose = False
 
+SINGLESTOREDB_USER = os.environ.get('IBIS_TEST_SINGLESTOREDB_USER', 'ibis')
+SINGLESTOREDB_PASSWORD = os.environ.get('IBIS_TEST_SINGLESTOREDB_PASSWORD', 'ibis')
+SINGLESTOREDB_HOST = os.environ.get('IBIS_TEST_SINGLESTOREDB_HOST', 'localhost')
+SINGLESTOREDB_PORT = int(os.environ.get('IBIS_TEST_SINGLESTOREDB_PORT', 9306))
+SINGLESTOREDB_DB = os.environ.get('IBIS_TEST_SINGLESTOREDB_DATABASE', 'ibis_testing')
 
-class TestConf(BackendTest, RoundHalfToEven):
+os.environ['SINGLESTOREDB_URL'] = \
+    f'singlestoredb://{SINGLESTOREDB_USER}:{SINGLESTOREDB_PASSWORD}' \
+    f'@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}/{SINGLESTOREDB_DB}'
+
+
+class TestConf(ServiceBackendTest, RoundHalfToEven):
     """
     SingleStoreDB connection tests.
 
@@ -32,39 +43,30 @@ class TestConf(BackendTest, RoundHalfToEven):
 
     # singlestoredb has the same rounding behavior as postgres
     check_dtype = False
-    supports_window_operations = False
     returned_timestamp_unit = 's'
+    supports_window_operations = True
     supports_arrays = False
+    supports_structs = False
     supports_arrays_outside_of_select = supports_arrays
     bool_is_int = True
 
-    def __init__(self, data_directory: Path) -> None:
-        super().__init__(data_directory)
-        # mariadb supports window operations after version 10.2
-        # but the sqlalchemy version string looks like:
-        # 5.5.5.10.2.12.MariaDB.10.2.12+maria~jessie
-        # or 10.4.12.MariaDB.1:10.4.12+maria~bionic
-        # example of possible results:
-        # https://github.com/sqlalchemy/sqlalchemy/blob/rel_1_3/
-        # test/dialect/mysql/test_dialect.py#L244-L268
-        self.__class__.supports_window_operations = True
+    service_name = 'singlestoredb'
+    deps = 'singlestoredb', 'sqlalchemy-singlestoredb', 'sqlalchemy'
+
+    def test_files(self) -> Iterable[Path]:
+        return self.data_dir.joinpath('csv').glob('*.csv')
 
     @staticmethod
-    def connect(data_directory: Path) -> Connection:
-        """
-        Connect to SingleStoreDB database.
-
-        Parameters
-        ----------
-        data_directory : Path
-            Path to input data
-
-        Returns
-        -------
-        Connection
-
-        """
-        return ibis.singlestoredb.connect()
+    def connect(*, tmpdir, worker_id, **kw):
+        database = kw.pop('database', SINGLESTOREDB_DB)
+        return ibis.singlestoredb.connect(
+            host=SINGLESTOREDB_HOST,
+            user=SINGLESTOREDB_USER,
+            password=SINGLESTOREDB_PASSWORD,
+            database=database,
+            port=SINGLESTOREDB_PORT,
+            **kw,
+        )
 
 
 def _random_identifier(suffix):
@@ -72,14 +74,36 @@ def _random_identifier(suffix):
 
 
 @pytest.fixture(scope='session')
+def setup_privs():
+    engine = sa.create_engine(
+        f'singlestoredb://root:@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}',
+    )
+    with engine.begin() as con:
+        # allow the ibis user to use any database
+        con.exec_driver_sql(f'CREATE DATABASE IF NOT EXISTS `{SINGLESTOREDB_DB}`')
+        con.exec_driver_sql(
+            f'GRANT CREATE,SELECT,DROP ON `{SINGLESTOREDB_DB}`.* '
+            f'TO `{SINGLESTOREDB_USER}`@`%%`',
+        )
+    yield
+#   with engine.begin() as con:
+#       con.exec_driver_sql(f"DROP DATABASE IF EXISTS `{SINGLESTOREDB_DB}`")
+
+
+@pytest.fixture(scope='session')
 def con():
     sql_file = os.path.join(os.path.dirname(__file__), 'test.sql')
     dbname, dbexisted = utils.load_sql(sql_file)
 
-    yield ibis.singlestoredb.connect(database=dbname)
+    yield TestConf.connect(tmpdir=None, worker_id=None)
 
-    if not dbexisted:
-        utils.drop_database(dbname)
+#   if not dbexisted:
+#       utils.drop_database(dbname)
+
+
+@pytest.fixture(scope='session')
+def con_nodb():
+    return TestConf.connect(tmpdir=None, worker_id=None, database=None)
 
 
 @pytest.fixture(scope='module')

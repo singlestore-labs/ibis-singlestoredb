@@ -50,20 +50,44 @@ def _build_data_type(
 
     """
     type_map = {
-        'bool': dt.Boolean, 'bit': dt.Binary, 'tinyint': dt.Int8,
-        'smallint': dt.Int16, 'mediumint': dt.Int32, 'int': dt.Int32,
-        'bigint': dt.Int64, 'float': dt.Float32, 'double': dt.Float64,
-        'tinyint unsigned': dt.UInt8, 'smallint unsigned': dt.UInt16,
-        'mediumint unsigned': dt.UInt32, 'int unsigned': dt.UInt32,
+        'bool': dt.Boolean,
+        'bit': dt.Binary,
+        'tinyint': dt.Int8,
+        'smallint': dt.Int16,
+        'mediumint': dt.Int32,
+        'int': dt.Int32,
+        'bigint': dt.Int64,
+        'float': dt.Float32,
+        'double': dt.Float64,
+        'tinyint unsigned': dt.UInt8,
+        'smallint unsigned': dt.UInt16,
+        'mediumint unsigned': dt.UInt32,
+        'int unsigned': dt.UInt32,
         'bignt unsigned': dt.UInt64,
-        'decimal': dt.Decimal, 'date': dt.Date, 'time': dt.Interval,
-        'datetime': dt.Timestamp, 'timestamp': dt.Timestamp, 'year': dt.Int16,
-        'char': dt.String, 'varchar': dt.String, 'text': dt.String,
-        'tinytext': dt.String, 'mediumtext': dt.String, 'longtext': dt.String,
-        'binary': dt.Binary, 'varbinary': dt.Binary, 'blob': dt.Binary,
-        'tinyblob': dt.Binary, 'mediumblob': dt.Binary, 'longblob': dt.Binary,
-        'json': dt.JSON, 'record': dt.Struct, 'geograph': dt.Geography,
-        'geographypoint': dt.Point, 'table': Table, 'null': dt.Null,
+        'decimal': dt.Decimal,
+        'date': dt.Date,
+        'time': dt.Interval,
+        'datetime': dt.Timestamp,
+        'timestamp': dt.Timestamp,
+        'year': dt.Int16,
+        'char': dt.String,
+        'varchar': dt.String,
+        'text': dt.String,
+        'tinytext': dt.String,
+        'mediumtext': dt.String,
+        'longtext': dt.String,
+        'binary': dt.Binary,
+        'varbinary': dt.Binary,
+        'blob': dt.Binary,
+        'tinyblob': dt.Binary,
+        'mediumblob': dt.Binary,
+        'longblob': dt.Binary,
+        'json': dt.JSON,
+        'record': dt.Struct,
+        'geograph': dt.Geography,
+        'geographypoint': dt.Point,
+        'table': Table,
+        'null': dt.Null,
         'array': dt.Array,
     }
 
@@ -108,7 +132,10 @@ def _parse_data_type(data: str) -> Tuple[dt.DataType, str]:
 
     """
     _, data_type, data = re.split(
-        r'\s*(\w+(?:\s+UNSIGNED)?)\s*', data, flags=re.I, maxsplit=1,
+        r'\s*(\w+(?:\s+UNSIGNED)?)\s*',
+        data,
+        flags=re.I,
+        maxsplit=1,
     )
     data_type = data_type.lower()
 
@@ -129,17 +156,22 @@ def _parse_data_type(data: str) -> Tuple[dt.DataType, str]:
     modifiers = {}
     while data and re.match(
         r'^(CHARACTER\s+SET\s+|COLLATE\s+|NULL|NOT\s+NULL)',
-        data, flags=re.I,
+        data,
+        flags=re.I,
     ):
         if re.match(r'CHARACTER\s+SET\s+', data, flags=re.I):
             _, modifiers['character_set'], data = re.split(
                 r'CHARACTER\s+SET\s+(\S+)\s*',
-                data, flags=re.I, maxsplit=1,
+                data,
+                flags=re.I,
+                maxsplit=1,
             )
         elif re.match(r'COLLATE\s+', data, flags=re.I):
             _, modifiers['collate'], data = re.split(
                 r'COLLATE\s+(\S+)\s*',
-                data, flags=re.I, maxsplit=1,
+                data,
+                flags=re.I,
+                maxsplit=1,
             )
         elif re.match(r'NULL', data, flags=re.I):
             _, data = re.split(r'NULL\s*', data, flags=re.I, maxsplit=1)
@@ -157,7 +189,9 @@ def _parse_data_type(data: str) -> Tuple[dt.DataType, str]:
     return _build_data_type(data_type, modifiers, data_type_args, schema), data
 
 
-def _parse_params(params: str, parse_names: bool = True) -> Tuple[List[dt.DataType], str]:
+def _parse_params(
+    params: str, parse_names: bool = True,
+) -> Tuple[List[dt.DataType], str]:
     """
     Parse function / table / record / array parameters from string.
 
@@ -177,7 +211,9 @@ def _parse_params(params: str, parse_names: bool = True) -> Tuple[List[dt.DataTy
     i = ord('a')
     while params and not params.startswith(')'):
         if parse_names:
-            _, param_name, params = re.split(r'(\S+)\s+', params, flags=re.I, maxsplit=1)
+            _, param_name, params = re.split(
+                r'(\S+)\s+', params, flags=re.I, maxsplit=1,
+            )
 
             if param_name.startswith('`') and param_name.endswith('`'):
                 param_name = param_name[1:-1]
@@ -219,7 +255,9 @@ def _parse_create_function(
     # Get function type
     _, func_type, func = re.split(
         r'((?:EXTERNAL\s+)?(?:FUNCTION|AGGREGATE))\s+',
-        func, flags=re.I, maxsplit=1,
+        func,
+        flags=re.I,
+        maxsplit=1,
     )
     func_type = func_type.lower()
 
@@ -245,7 +283,9 @@ def _parse_create_function(
         info['wasm'] = True
 
     m_remote_service = re.search(
-        r'\bAS\s+REMOTE\s+SERVICE\s*("|\')([^\1])\1', func, flags=re.I,
+        r'\bAS\s+REMOTE\s+SERVICE\s*("|\')([^\1])\1',
+        func,
+        flags=re.I,
     )
     if m_remote_service:
         info['remote_service'] = m_remote_service.group(2)

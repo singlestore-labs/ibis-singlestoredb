@@ -30,9 +30,17 @@ create table if not exists datatypes (
     set_abcd_c set('a', 'b', 'c', 'd'),
     negative_int_c int,
     negative_float_c float,
-    bool_c bool
+    bool_c bool,
+
+    -- Complex types
+    text_vector text,
+    json_vector json,
+    text_list text,
+    json_list json,
+    text_obj text,
+    json_obj json
 );
 
 load data local infile '{{TEST_PATH}}/datatypes.csv' into table datatypes
-    columns terminated by ',' optionally enclosed by '"' lines terminated by '\n'
+    columns terminated by ',' optionally enclosed by "'" lines terminated by '\n'
     ignore 1 lines;

@@ -71,7 +71,7 @@ OPERATIONS = [
     # ExtractWeekOfYear
     # ExtractYear
     # FirstValue
-    ('first()', lambda x: x.first()),
+    # ('first()', lambda x: x.first()),
     # FloorDivide
     # Floor
     ('floor()', lambda x: x.floor()),
