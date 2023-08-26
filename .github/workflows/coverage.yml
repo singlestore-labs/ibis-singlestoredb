@@ -36,9 +36,13 @@ jobs:
           pip install -r requirements.txt
           pip install -r test-requirements.txt
 
-      - name: Install SingleStore package
+      - name: Install SingleStoreDB Ibis backend
         run: |
           python setup.py install
+
+      - name: Install test database
+        run: |
+          python resources/init_db.py -h 127.0.0.1 -P 3306 -u root --password root -d ibis_testing ibis_singlestoredb/tests/test.sql
 
       - name: Run MySQL protocol tests
         run: |

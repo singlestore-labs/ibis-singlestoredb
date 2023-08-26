@@ -76,6 +76,7 @@ while True:
                         cmd = cmd.strip()
                         if cmd:
                             cmd += ';'
+                            cmd = cmd.replace('{{TEST_PATH}}', os.path.dirname(sql_file))
                             cur.execute(cmd)
         break
 
