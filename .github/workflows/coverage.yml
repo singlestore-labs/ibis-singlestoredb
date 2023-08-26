@@ -44,7 +44,12 @@ jobs:
         run: |
           pytest -q --cov=ibis_singlestoredb ibis_singlestoredb/tests
         env:
-          SINGLESTOREDB_URL: "root:root@127.0.0.1:3306"
+          IBIS_TEST_SINGLESTOREDB_USER: "root"
+          IBIS_TEST_SINGLESTOREDB_PASSWORD: "root"
+          IBIS_TEST_SINGLESTOREDB_HOST: "127.0.0.1"
+          IBIS_TEST_SINGLESTOREDB_PORT: "3306"
+          IBIS_TEST_SINGLESTOREDB_DATABASE: "ibis_testing"
+          SINGLESTOREDB_URL: "root:root@127.0.0.1:3306/ibis_testing"
           SINGLESTOREDB_MANAGEMENT_TOKEN: ${{ secrets.CLUSTER_API_KEY }}
 
       - name: Generate report
