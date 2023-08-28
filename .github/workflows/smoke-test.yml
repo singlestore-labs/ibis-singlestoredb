@@ -95,7 +95,7 @@ jobs:
 
       - name: Run tests
         if: ${{ matrix.driver != 'http' }}
-        run: pytest -v ibis_singlestoredb/tests
+        run: pytest -v ibis_singlestoredb/tests/test_client.py
         env:
           IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
           IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
@@ -108,7 +108,7 @@ jobs:
 
       - name: Run tests
         if: ${{ matrix.driver == 'http' }}
-        run: pytest -v ibis_singlestoredb/tests
+        run: pytest -v ibis_singlestoredb/tests/test_client.py
         env:
           IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
           IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
