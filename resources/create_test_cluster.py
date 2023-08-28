@@ -135,10 +135,6 @@ if not ws.endpoint:
     print('ERROR: Endpoint was never activated.')
     sys.exit(1)
 
-
-# Extra pause for server to become available
-time.sleep(10)
-
 database = options.database
 if not database:
     database = 'TEMP_{}'.format(uuid.uuid4()).replace('-', '_')

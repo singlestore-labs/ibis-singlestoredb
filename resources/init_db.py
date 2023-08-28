@@ -85,5 +85,5 @@ while True:
         print(f'WARNING: {exc}')
         time.sleep(30)
         tries -= 1
-        if tries < 0:
+        if tries < 0 or 'Access denied' in str(exc):
             raise
