@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date
 from operator import methodcaller
 from typing import Any
@@ -129,16 +130,18 @@ def test_blob_type(con: Any, coltype: str) -> None:
 
 @pytest.fixture(scope='session')
 def tmp_t(con_nodb: Any) -> Generator[Any, Any, Any]:
+    pid = os.getpid()
     with con_nodb.begin() as c:
-        c.exec_driver_sql('CREATE TABLE IF NOT EXISTS ibis_testing.t (x TEXT)')
+        c.exec_driver_sql(f'CREATE TABLE IF NOT EXISTS ibis_testing.t_{pid} (x TEXT)')
     yield
     with con_nodb.begin() as c:
-        c.exec_driver_sql('DROP TABLE IF EXISTS ibis_testing.t')
+        c.exec_driver_sql(f'DROP TABLE IF EXISTS ibis_testing.t_{pid}')
 
 
 @pytest.mark.usefixtures('setup_privs', 'tmp_t')
 def test_get_schema_from_query_other_schema(con_nodb: Any) -> None:
-    t = con_nodb.table('t', schema='ibis_testing')
+    pid = os.getpid()
+    t = con_nodb.table(f't_{pid}', schema='ibis_testing')
     assert t.schema() == ibis.schema({'x': dt.string})
 
 
