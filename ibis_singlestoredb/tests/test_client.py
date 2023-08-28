@@ -17,6 +17,8 @@ from ibis.util import gen_name
 from pytest import param
 
 
+SINGLESTOREDB_DB = os.environ.get('IBIS_TEST_SINGLESTOREDB_DATABASE', 'ibis_testing')
+
 SINGLESTOREDB_TYPES = [
     ('bool', dt.int8),
     ('boolean', dt.int8),
@@ -132,16 +134,18 @@ def test_blob_type(con: Any, coltype: str) -> None:
 def tmp_t(con_nodb: Any) -> Generator[Any, Any, Any]:
     pid = os.getpid()
     with con_nodb.begin() as c:
-        c.exec_driver_sql(f'CREATE TABLE IF NOT EXISTS ibis_testing.t_{pid} (x TEXT)')
+        c.exec_driver_sql(
+            f'CREATE TABLE IF NOT EXISTS {SINGLESTOREDB_DB}.t_{pid} (x TEXT)',
+        )
     yield
     with con_nodb.begin() as c:
-        c.exec_driver_sql(f'DROP TABLE IF EXISTS ibis_testing.t_{pid}')
+        c.exec_driver_sql(f'DROP TABLE IF EXISTS {SINGLESTOREDB_DB}.t_{pid}')
 
 
 @pytest.mark.usefixtures('setup_privs', 'tmp_t')
 def test_get_schema_from_query_other_schema(con_nodb: Any) -> None:
     pid = os.getpid()
-    t = con_nodb.table(f't_{pid}', schema='ibis_testing')
+    t = con_nodb.table(f't_{pid}', schema=f'{SINGLESTOREDB_DB}')
     assert t.schema() == ibis.schema({'x': dt.string})
 
 
