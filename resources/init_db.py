@@ -65,6 +65,7 @@ while True:
         with s2.connect(
             f'mysql://{options.host}:{options.port}',
             user=options.user, password=options.password,
+            local_infile=True,
         ) as conn:
             with conn.cursor() as cur:
                 cur.execute(f'CREATE DATABASE IF NOT EXISTS {database};')
