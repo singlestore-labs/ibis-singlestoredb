@@ -97,6 +97,8 @@ jobs:
         if: ${{ matrix.driver != 'http' }}
         run: pytest -v ibis_singlestoredb/tests
         env:
+          IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
+          IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_USER: ${{secrets.CLUSTER_USER}}
           IBIS_TEST_SINGLESTOREDB_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_HOST: ${{needs.setup-database.outputs.cluster-host}}
@@ -108,8 +110,8 @@ jobs:
         if: ${{ matrix.driver == 'http' }}
         run: pytest -v ibis_singlestoredb/tests
         env:
-          IBIS_TEST_SINGLESTOREDB_USER: ${{secrets.CLUSTER_USER}}
-          IBIS_TEST_SINGLESTOREDB_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
+          IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
+          IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_HOST: ${{needs.setup-database.outputs.cluster-host}}
           IBIS_TEST_SINGLESTOREDB_PORT: 9000
           IBIS_TEST_SINGLESTOREDB_DATABASE: ${{needs.setup-database.outputs.cluster-database}}

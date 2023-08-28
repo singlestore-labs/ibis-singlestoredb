@@ -13,12 +13,13 @@ import pytest
 import sqlalchemy as sa
 from ibis.backends.tests.base import RoundHalfToEven
 from ibis.backends.tests.base import ServiceBackendTest
-from singlestoredb.tests import utils
 
 ibis.options.interactive = False
 ibis.options.sql.default_limit = None
 ibis.options.verbose = False
 
+SINGLESTOREDB_ROOT_USER = os.environ.get('IBIS_TEST_SINGLESTOREDB_ROOT_USER', 'root')
+SINGLESTOREDB_ROOT_PASSWORD = os.environ.get('IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD', '')
 SINGLESTOREDB_USER = os.environ.get('IBIS_TEST_SINGLESTOREDB_USER', 'ibis')
 SINGLESTOREDB_PASSWORD = os.environ.get('IBIS_TEST_SINGLESTOREDB_PASSWORD', 'ibis')
 SINGLESTOREDB_HOST = os.environ.get('IBIS_TEST_SINGLESTOREDB_HOST', 'localhost')
@@ -76,7 +77,8 @@ def _random_identifier(suffix):
 @pytest.fixture(scope='session')
 def setup_privs():
     engine = sa.create_engine(
-        f'singlestoredb://root:@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}',
+        f'singlestoredb://{SINGLESTOREDB_ROOT_USER}:{SINGLESTOREDB_ROOT_PASSWORD}'
+        f'@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}',
     )
     with engine.begin() as con:
         # allow the ibis user to use any database
@@ -86,14 +88,14 @@ def setup_privs():
             f'TO `{SINGLESTOREDB_USER}`@`%%`',
         )
     yield
-#   with engine.begin() as con:
-#       con.exec_driver_sql(f"DROP DATABASE IF EXISTS `{SINGLESTOREDB_DB}`")
+    with engine.begin() as con:
+        con.exec_driver_sql(f'DROP DATABASE IF EXISTS `{SINGLESTOREDB_DB}`')
 
 
 @pytest.fixture(scope='session')
 def con():
-    sql_file = os.path.join(os.path.dirname(__file__), 'test.sql')
-    dbname, dbexisted = utils.load_sql(sql_file)
+    #   sql_file = os.path.join(os.path.dirname(__file__), 'test.sql')
+    #   dbname, dbexisted = utils.load_sql(sql_file)
 
     yield TestConf.connect(tmpdir=None, worker_id=None)
 

@@ -48,6 +48,8 @@ jobs:
         run: |
           pytest -q --cov=ibis_singlestoredb ibis_singlestoredb/tests
         env:
+          IBIS_TEST_SINGLESTOREDB_ROOT_USER: "root"
+          IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: "root"
           IBIS_TEST_SINGLESTOREDB_USER: "root"
           IBIS_TEST_SINGLESTOREDB_PASSWORD: "root"
           IBIS_TEST_SINGLESTOREDB_HOST: "127.0.0.1"
