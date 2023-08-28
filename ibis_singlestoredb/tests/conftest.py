@@ -73,20 +73,20 @@ def _random_identifier(suffix):
     return f'__ibis_test_{suffix}_{ibis.util.guid()}'
 
 
-# @pytest.fixture(scope='session')
-# def setup_privs():
-#    engine = sa.create_engine(
-#        f'singlestoredb://{SINGLESTOREDB_ROOT_USER}:{SINGLESTOREDB_ROOT_PASSWORD}'
-#        f'@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}',
-#    )
-#    with engine.begin() as con:
-#        # allow the ibis user to use any database
-#        con.exec_driver_sql(f'CREATE DATABASE IF NOT EXISTS `{SINGLESTOREDB_DB}`')
-#        con.exec_driver_sql(
-#            f'GRANT CREATE,SELECT,DROP ON `{SINGLESTOREDB_DB}`.* '
-#            f'TO `{SINGLESTOREDB_USER}`@`%%`',
-#        )
-#    yield
+@pytest.fixture(scope='session')
+def setup_privs():
+    #    engine = sa.create_engine(
+    #        f'singlestoredb://{SINGLESTOREDB_ROOT_USER}:{SINGLESTOREDB_ROOT_PASSWORD}'
+    #        f'@{SINGLESTOREDB_HOST}:{SINGLESTOREDB_PORT}',
+    #    )
+    #    with engine.begin() as con:
+    #        # allow the ibis user to use any database
+    #        con.exec_driver_sql(f'CREATE DATABASE IF NOT EXISTS `{SINGLESTOREDB_DB}`')
+    #        con.exec_driver_sql(
+    #            f'GRANT CREATE,SELECT,DROP ON `{SINGLESTOREDB_DB}`.* '
+    #            f'TO `{SINGLESTOREDB_USER}`@`%%`',
+    #        )
+    yield
 #    with engine.begin() as con:
 #        con.exec_driver_sql(f'DROP DATABASE IF EXISTS `{SINGLESTOREDB_DB}`')
 
