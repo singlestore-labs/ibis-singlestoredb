@@ -106,28 +106,35 @@ def test_get_schema_from_query(
         pytest.skip('HTTP API does not surface unsigned int information')
         return
 
-    raw_name = ibis.util.guid()
-    name = con._quote(raw_name)
-    # temporary tables get cleaned up by the db when the session ends, so we
-    # don't need to explicitly drop the table
-    with con.begin() as c:
-        c.exec_driver_sql(
-            f'CREATE ROWSTORE TEMPORARY TABLE {name} (x {singlestoredb_type})',
-        )
-    expected_schema = ibis.schema(dict(x=expected_type))
-    t = con.table(raw_name)
-    result_schema = con._get_schema_using_query(f'SELECT * FROM {name}')
-    assert t.schema() == expected_schema
-    assert result_schema == expected_schema
+    tmp = f'tmp_{ibis.util.guid()}'
+
+    try:
+        with con.begin() as c:
+            c.exec_driver_sql(
+                f'CREATE ROWSTORE TABLE {tmp} (x {singlestoredb_type})',
+            )
+        expected_schema = ibis.schema(dict(x=expected_type))
+        t = con.table(tmp)
+        result_schema = con._get_schema_using_query(f'SELECT * FROM {tmp}')
+        assert t.schema() == expected_schema
+        assert result_schema == expected_schema
+
+    finally:
+        con.drop_table(tmp, force=True)
 
 
 @pytest.mark.parametrize('coltype', ['TINYBLOB', 'MEDIUMBLOB', 'BLOB', 'LONGBLOB'])
 def test_blob_type(con: Any, coltype: str) -> None:
     tmp = f'tmp_{ibis.util.guid()}'
-    with con.begin() as c:
-        c.exec_driver_sql(f'CREATE ROWSTORE TEMPORARY TABLE {tmp} (a {coltype})')
-    t = con.table(tmp)
-    assert t.schema() == ibis.schema({'a': dt.binary})
+
+    try:
+        with con.begin() as c:
+            c.exec_driver_sql(f'CREATE ROWSTORE TABLE {tmp} (a {coltype})')
+        t = con.table(tmp)
+        assert t.schema() == ibis.schema({'a': dt.binary})
+
+    finally:
+        con.drop_table(tmp, force=True)
 
 
 @pytest.fixture(scope='session')
@@ -150,42 +157,46 @@ def test_get_schema_from_query_other_schema(con_nodb: Any) -> None:
 
 
 def test_zero_timestamp_data(con: Any) -> None:
-    pid = os.getpid()
+    guid = ibis.util.guid()
     sql = f"""
-    CREATE TEMPORARY TABLE ztmp_date_issue_{pid}
+    CREATE TABLE ztmp_date_issue_{guid}
     (
         name      CHAR(10) NULL,
         tradedate DATETIME NOT NULL,
         date      DATETIME NULL
     );
     """
-    with con.begin() as c:
-        c.exec_driver_sql(sql)
-        c.exec_driver_sql(
-            f"""
-            INSERT INTO ztmp_date_issue_{pid} VALUES
-                ('C', '2018-10-22', 0),
-                ('B', '2017-06-07', 0),
-                ('A', '2022-12-21', 0)
-            """,
-        )
-    t = con.table(f'ztmp_date_issue_{pid}')
-    result = t.execute().sort_values('name').reset_index(drop=True)
-    expected = pd.DataFrame(
-        {
-            'name': ['C', 'B', 'A'],
-            'tradedate': pd.to_datetime(
-                [date(2018, 10, 22), date(2017, 6, 7), date(2022, 12, 21)],
-            ),
-            'date': [pd.NaT, pd.NaT, pd.NaT],
-        },
-    ).sort_values('name').reset_index(drop=True)
-    tm.assert_frame_equal(result, expected)
+    try:
+        with con.begin() as c:
+            c.exec_driver_sql(sql)
+            c.exec_driver_sql(
+                f"""
+                INSERT INTO ztmp_date_issue_{guid} VALUES
+                    ('C', '2018-10-22', 0),
+                    ('B', '2017-06-07', 0),
+                    ('A', '2022-12-21', 0)
+                """,
+            )
+        t = con.table(f'ztmp_date_issue_{guid}')
+        result = t.execute().sort_values('name').reset_index(drop=True)
+        expected = pd.DataFrame(
+            {
+                'name': ['C', 'B', 'A'],
+                'tradedate': pd.to_datetime(
+                    [date(2018, 10, 22), date(2017, 6, 7), date(2022, 12, 21)],
+                ),
+                'date': [pd.NaT, pd.NaT, pd.NaT],
+            },
+        ).sort_values('name').reset_index(drop=True)
+        tm.assert_frame_equal(result, expected)
+
+    finally:
+        con.drop_table(f'ztmp_date_issue_{guid}', force=True)
 
 
 @pytest.fixture(scope='module')
 def enum_t(con: Any) -> Generator[Any, Any, Any]:
-    name = gen_name('singlestoredb_enum_test')
+    name = gen_name('_enum_')
     t = sa.Table(
         name, sa.MetaData(), sa.Column(
             'sml',
