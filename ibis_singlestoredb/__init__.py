@@ -35,7 +35,7 @@ from .sqlglot import dialect
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__version__ = '0.4.1'
+__version__ = '0.4.2'
 
 
 class Backend(BaseAlchemyBackend, CanCreateDatabase):
@@ -379,7 +379,7 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
             self._schemas[self._fully_qualified_name(name, database)] = schema
 
             if drop:
-                self.drop_table(name, overwrite=True)
+                self.drop_table(name, force=True)
 
             t = self._table_from_schema(
                 name,
@@ -418,7 +418,7 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
             self._schemas[self._fully_qualified_name(name, database)] = schema
 
             if drop:
-                self.drop_table(name, overwrite=True)
+                self.drop_table(name, force=True)
 
             t = self._table_from_schema(
                 name,
