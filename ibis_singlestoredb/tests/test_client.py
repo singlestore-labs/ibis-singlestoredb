@@ -107,7 +107,7 @@ def test_get_schema_from_query(
         return
 
     raw_name = ibis.util.guid()
-    name = f'tmp_{con._quote(raw_name)}'
+    name = con._quote(f'tmp_{raw_name}')
     # temporary tables get cleaned up by the db when the session ends, so we
     # don't need to explicitly drop the table
     with con.begin() as c:
