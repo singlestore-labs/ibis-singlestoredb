@@ -150,8 +150,9 @@ def test_get_schema_from_query_other_schema(con_nodb: Any) -> None:
 
 
 def test_zero_timestamp_data(con: Any) -> None:
-    sql = """
-    CREATE TEMPORARY TABLE ztmp_date_issue
+    pid = os.getpid()
+    sql = f"""
+    CREATE TEMPORARY TABLE ztmp_date_issue_{pid}
     (
         name      CHAR(10) NULL,
         tradedate DATETIME NOT NULL,
@@ -161,14 +162,14 @@ def test_zero_timestamp_data(con: Any) -> None:
     with con.begin() as c:
         c.exec_driver_sql(sql)
         c.exec_driver_sql(
-            """
-            INSERT INTO ztmp_date_issue VALUES
+            f"""
+            INSERT INTO ztmp_date_issue_{pid} VALUES
                 ('C', '2018-10-22', 0),
                 ('B', '2017-06-07', 0),
                 ('A', '2022-12-21', 0)
             """,
         )
-    t = con.table('ztmp_date_issue')
+    t = con.table(f'ztmp_date_issue_{pid}')
     result = t.execute().sort_values('name').reset_index(drop=True)
     expected = pd.DataFrame(
         {
