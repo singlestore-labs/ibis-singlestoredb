@@ -48,18 +48,37 @@ jobs:
         run: |
           pytest -q --cov=ibis_singlestoredb ibis_singlestoredb/tests
         env:
+          COVERAGE_FILE: "coverage-mysql.cov"
           IBIS_TEST_SINGLESTOREDB_ROOT_USER: "root"
           IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: "root"
           IBIS_TEST_SINGLESTOREDB_USER: "root"
           IBIS_TEST_SINGLESTOREDB_PASSWORD: "root"
+          IBIS_TEST_SINGLESTOREDB_DRIVER: "mysql"
           IBIS_TEST_SINGLESTOREDB_HOST: "127.0.0.1"
           IBIS_TEST_SINGLESTOREDB_PORT: "3306"
           IBIS_TEST_SINGLESTOREDB_DATABASE: "ibis_testing"
           SINGLESTOREDB_URL: "root:root@127.0.0.1:3306/ibis_testing"
           SINGLESTOREDB_MANAGEMENT_TOKEN: ${{ secrets.CLUSTER_API_KEY }}
 
+      - name: Run HTTP protocol tests
+        run: |
+          pytest -q --cov=ibis_singlestoredb ibis_singlestoredb/tests
+        env:
+          COVERAGE_FILE: "coverage-http.cov"
+          IBIS_TEST_SINGLESTOREDB_ROOT_USER: "root"
+          IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: "root"
+          IBIS_TEST_SINGLESTOREDB_USER: "root"
+          IBIS_TEST_SINGLESTOREDB_PASSWORD: "root"
+          IBIS_TEST_SINGLESTOREDB_DRIVER: "http"
+          IBIS_TEST_SINGLESTOREDB_HOST: "127.0.0.1"
+          IBIS_TEST_SINGLESTOREDB_PORT: "9000"
+          IBIS_TEST_SINGLESTOREDB_DATABASE: "ibis_testing"
+          SINGLESTOREDB_URL: "http://root:root@127.0.0.1:9000/ibis_testing"
+          SINGLESTOREDB_MANAGEMENT_TOKEN: ${{ secrets.CLUSTER_API_KEY }}
+
       - name: Generate report
         run: |
+          coverage combine coverage-mysql.cov coverage-http.cov
           coverage report
           coverage xml
           coverage html
