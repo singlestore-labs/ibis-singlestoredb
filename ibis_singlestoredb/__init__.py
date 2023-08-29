@@ -73,6 +73,9 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
             dbapi_connection: singlestoredb.Connection,
             connection_record: Any,
         ) -> None:
+            if driver and 'http' in driver:
+                return
+
             with dbapi_connection.cursor() as cur:
                 try:
                     cur.execute("SET @@session.time_zone = 'UTC'")
@@ -260,13 +263,15 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
     def create_table(
         self,
         name: str,
-        expr: Optional[Union[pd.DataFrame, ir.TableExpr]] = None,
+        obj: Optional[Union[pd.DataFrame, ir.TableExpr]] = None,
+        *,
         schema: Optional[sch.Schema] = None,
         database: Optional[str] = None,
+        temp: bool = False,
         overwrite: bool = False,
         storage_type: Optional[str] = None,
         schema_overrides: Optional[Union[Dict[str, str], sch.Schema]] = None,
-        temp: bool = False,
+        force: Optional[bool] = None,  # Deprecated!
     ) -> ir.Table:
         """
         Create a new table.
@@ -275,33 +280,41 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
         ----------
         name : str
             Name of the new table.
-        expr : Schema or DataFrame, optional
+        obj : Schema or DataFrame, optional
             An Ibis table expression or pandas DataFrame that will be used to
             extract the schema and the data of the new table. If not provided,
             ``schema`` must be given.
         schema : Schema, optional
-            The schema for the new table. Only one of ``schema`` or ``expr`` can be
+            The schema for the new table. Only one of ``schema`` or ``obj`` can be
             provided.
         database : str, optional
             Name of the database where the table will be created, if not the
             default.
+        temp : bool, optional
+            Should the table be a temporary table?
         overwrite : bool, optional
             Check whether a table exists before creating it
         storage_type : str, optional
             The storage type of table to create: COLUMNSTORE or ROWSTORE
         schema_overrides : dict or Schema, optional
-            If the ``expr`` is a DataFrame, the data types of specific fields
+            If the ``obj`` is a DataFrame, the data types of specific fields
             can be overridden using a partial Schema or dict with keys for
             the overridden columns. Values of the dict are simply the string
             names of the data types: bool, int32, int64, float64, etc.
-        temp : bool, optional
-            Should the table be a temporary table?
 
         Returns
         -------
         Table expression
 
         """
+        # force= was renamed to overwrite=
+        if force is not None:
+            overwrite = force
+            warnings.warn(
+                '`force=` has been renamed to `overwrite=`',
+                DeprecationWarning,
+            )
+
         if storage_type:
             storage_type = storage_type.upper()
             if storage_type not in ['ROWSTORE', 'COLUMNSTORE']:
@@ -318,7 +331,7 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
                 'Creating tables from a different database is not yet ' 'implemented',
             )
 
-        if expr is None and schema is None:
+        if obj is None and schema is None:
             raise ValueError('You must pass either an expression or a schema')
 
         drop = False
@@ -331,11 +344,11 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
                     'Use overwrite=True to overwrite.',
                 )
 
-        if isinstance(expr, pd.DataFrame):
+        if isinstance(obj, pd.DataFrame):
             if schema is not None:
                 pd_schema_names = (
                     ibis.pandas.connect(
-                        {name: expr},
+                        {name: obj},
                     )
                     .table(name)
                     .schema()
@@ -348,15 +361,15 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
                     )
 
             # TODO: Should this be done in `insert` as well?
-            expr = expr.copy()
-            for column in expr:
+            obj = obj.copy()
+            for column in obj:
                 try:
-                    expr[column].dt.tz_localize('UTC')
+                    obj[column].dt.tz_localize('UTC')
                 except (AttributeError, TypeError):
                     pass
 
             if schema is None:
-                schema = ibis.pandas.connect({name: expr}).table(name).schema()
+                schema = ibis.pandas.connect({name: obj}).table(name).schema()
 
             if schema_overrides:
                 schema = self._merge_schema_overrides(schema, schema_overrides)
@@ -382,23 +395,23 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
 
             with self.begin() as bind:
                 t.create(bind=bind, checkfirst=overwrite)
-                expr.to_sql(
+                obj.to_sql(
                     name,
                     self.con,
                     index=False,
                     if_exists='append',
                 )
 
-        elif isinstance(expr, ir.TableExpr) or schema is not None:
-            if expr is not None and schema is not None:
-                if not sorted(expr.schema().names) == sorted(sch.schema(schema).names):
+        elif isinstance(obj, ir.TableExpr) or schema is not None:
+            if obj is not None and schema is not None:
+                if not sorted(obj.schema().names) == sorted(sch.schema(schema).names):
                     raise TypeError(
                         'Expression schema is not equal to passed schema. '
                         'Try passing the expression without the schema',
                     )
 
             if schema is None:
-                schema = expr.schema()  # type: ignore
+                schema = obj.schema()  # type: ignore
 
             self._schemas[self._fully_qualified_name(name, database)] = schema
 
@@ -421,15 +434,15 @@ class Backend(BaseAlchemyBackend, CanCreateDatabase):
 
             with self.begin() as bind:
                 t.create(bind=bind, checkfirst=overwrite)
-                if expr is not None:
+                if obj is not None:
                     bind.execute(
-                        t.insert().from_select(list(expr.columns), expr.compile()),
+                        t.insert().from_select(list(obj.columns), obj.compile()),
                     )
 
         else:
             raise TypeError(
-                '`expr` and/or `schema` are not an expected type: {} / {}'.format(
-                    type(expr).__name__,
+                '`obj` and/or `schema` are not an expected type: {} / {}'.format(
+                    type(obj).__name__,
                     type(schema).__name__,
                 ),
             )
