@@ -47,32 +47,32 @@ jobs:
 #         - "3.10"
           - "3.11"
         driver:
-#         - mysql
+          - mysql
           - https
         pure-python:
           - 0
         # Manually include a couple of runs on Mac & Windows
-    #   include:
-    #     - os: ubuntu-latest
-    #       python-version: "3.11"
-    #       driver: mysql
-    #       pure-python: 1
-    #     - os: macos-latest
-    #       python-version: "3.11"
-    #       driver: mysql
-    #       pure-python: 0
-#   #     - os: macos-latest
-#   #       python-version: "3.11"
-#   #       driver: http
-#   #       pure-python: 0
-    #     - os: windows-latest
-    #       python-version: "3.11"
-    #       driver: mysql
-    #       pure-python: 0
-#   #     - os: windows-latest
-#   #       python-version: "3.11"
-#   #       driver: http
-#   #       pure-python: 0
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+            driver: mysql
+            pure-python: 1
+          - os: macos-latest
+            python-version: "3.11"
+            driver: mysql
+            pure-python: 0
+#         - os: macos-latest
+#           python-version: "3.11"
+#           driver: http
+#           pure-python: 0
+          - os: windows-latest
+            python-version: "3.11"
+            driver: mysql
+            pure-python: 0
+#         - os: windows-latest
+#           python-version: "3.11"
+#           driver: http
+#           pure-python: 0
 
     steps:
       - uses: actions/checkout@v3
