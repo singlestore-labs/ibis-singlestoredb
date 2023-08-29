@@ -48,7 +48,7 @@ jobs:
           - "3.11"
         driver:
           - mysql
-#         - http
+          - http
         pure-python:
           - 0
         # Manually include a couple of runs on Mac & Windows
