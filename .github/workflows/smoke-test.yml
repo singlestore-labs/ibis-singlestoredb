@@ -48,7 +48,7 @@ jobs:
           - "3.11"
         driver:
           - mysql
-          - http
+          - https
         pure-python:
           - 0
         # Manually include a couple of runs on Mac & Windows
@@ -94,7 +94,7 @@ jobs:
           python setup.py install
 
       - name: Run tests
-        if: ${{ matrix.driver != 'http' }}
+        if: ${{ matrix.driver != 'https' }}
         run: pytest -v ibis_singlestoredb/tests/test_client.py
         env:
           IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
@@ -108,7 +108,7 @@ jobs:
           SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:3306/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{ matrix.pure-python }}"
 
       - name: Run tests
-        if: ${{ matrix.driver == 'http' }}
+        if: ${{ matrix.driver == 'https' }}
         run: pytest -v ibis_singlestoredb/tests/test_client.py
         env:
           IBIS_TEST_SINGLESTOREDB_ROOT_USER: ${{secrets.CLUSTER_USER}}
@@ -117,7 +117,7 @@ jobs:
           IBIS_TEST_SINGLESTOREDB_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_DRIVER: ${{matrix.driver}}
           IBIS_TEST_SINGLESTOREDB_HOST: ${{needs.setup-database.outputs.cluster-host}}
-          IBIS_TEST_SINGLESTOREDB_PORT: 9000
+          IBIS_TEST_SINGLESTOREDB_PORT: 443
           IBIS_TEST_SINGLESTOREDB_DATABASE: ${{needs.setup-database.outputs.cluster-database}}
           SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:9000/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{ matrix.pure-python }}"
 
