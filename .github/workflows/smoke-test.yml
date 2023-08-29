@@ -101,10 +101,11 @@ jobs:
           IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_USER: ${{secrets.CLUSTER_USER}}
           IBIS_TEST_SINGLESTOREDB_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
+          IBIS_TEST_SINGLESTOREDB_DRIVER: ${{matrix.driver}}
           IBIS_TEST_SINGLESTOREDB_HOST: ${{needs.setup-database.outputs.cluster-host}}
           IBIS_TEST_SINGLESTOREDB_PORT: 3306
           IBIS_TEST_SINGLESTOREDB_DATABASE: ${{needs.setup-database.outputs.cluster-database}}
-          SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:3306/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{matrix.pure-python}}"
+          SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:3306/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{ matrix.pure-python }}"
 
       - name: Run tests
         if: ${{ matrix.driver == 'http' }}
@@ -114,10 +115,11 @@ jobs:
           IBIS_TEST_SINGLESTOREDB_ROOT_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
           IBIS_TEST_SINGLESTOREDB_USER: ${{secrets.CLUSTER_USER}}
           IBIS_TEST_SINGLESTOREDB_PASSWORD: ${{secrets.CLUSTER_PASSWORD}}
+          IBIS_TEST_SINGLESTOREDB_DRIVER: ${{matrix.driver}}
           IBIS_TEST_SINGLESTOREDB_HOST: ${{needs.setup-database.outputs.cluster-host}}
           IBIS_TEST_SINGLESTOREDB_PORT: 9000
           IBIS_TEST_SINGLESTOREDB_DATABASE: ${{needs.setup-database.outputs.cluster-database}}
-          SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:9000/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{matrix.pure-python}}"
+          SINGLESTOREDB_URL: "singlestoredb+${{ matrix.driver }}://${{ secrets.CLUSTER_USER }}:${{ secrets.CLUSTER_PASSWORD }}@${{ needs.setup-database.outputs.cluster-host }}:9000/${{ needs.setup-database.outputs.cluster-database }}?pure_python=${{ matrix.pure-python }}"
 
 
   shutdown-database:
