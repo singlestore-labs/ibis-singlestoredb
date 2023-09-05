@@ -35,7 +35,7 @@ from .sqlglot import dialect
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__version__ = '0.4.2'
+__version__ = '0.4.3'
 
 
 class Backend(BaseAlchemyBackend, CanCreateDatabase):
