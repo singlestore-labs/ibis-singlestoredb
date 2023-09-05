@@ -32,5 +32,7 @@ def json_get_type(arg: ir.JSONValue | ir.StringValue) -> ir.StringValue:
     return JSONGetType(arg).to_expr()
 
 
+ir.JSONValue.dtype = property(json_get_type)
 ir.JSONValue.json_get_type = json_get_type
+ir.JSONValue.get_type = json_get_type
 ir.StringValue.json_get_type = json_get_type

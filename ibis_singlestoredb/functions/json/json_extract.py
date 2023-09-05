@@ -39,6 +39,7 @@ def json_extract_double(
 
 
 ir.JSONValue.json_extract_double = json_extract_double
+ir.JSONValue.extract_double = json_extract_double
 ir.StringValue.json_extract_double = json_extract_double
 
 
@@ -75,6 +76,7 @@ def json_extract_string(
 
 
 ir.JSONValue.json_extract_string = json_extract_string
+ir.JSONValue.extract_string = json_extract_string
 ir.StringValue.json_extract_string = json_extract_string
 
 
@@ -111,6 +113,7 @@ def json_extract_json(
 
 
 ir.JSONValue.json_extract_json = json_extract_json
+ir.JSONValue.extract_json = json_extract_json
 ir.StringValue.json_extract_json = json_extract_json
 
 
@@ -147,4 +150,5 @@ def json_extract_bigint(
 
 
 ir.JSONValue.json_extract_bigint = json_extract_bigint
+ir.JSONValue.extract_bigint = json_extract_bigint
 ir.StringValue.json_extract_bigint = json_extract_bigint

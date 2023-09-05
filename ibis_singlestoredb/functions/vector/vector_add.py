@@ -18,7 +18,7 @@ class VectorAdd(Value):
     left = binary
     right = binary
 
-    output_dtype = dt.binary
+    output_dtype = rlz.dtype_like('left')
     output_shape = rlz.shape_like('left')
 
 

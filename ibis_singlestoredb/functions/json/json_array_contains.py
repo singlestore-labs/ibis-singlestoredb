@@ -41,6 +41,7 @@ def json_array_contains_double(
 
 
 ir.JSONValue.json_array_contains_double = json_array_contains_double
+ir.JSONValue.array_contains_double = json_array_contains_double
 ir.StringValue.json_array_contains_double = json_array_contains_double
 
 
@@ -76,6 +77,7 @@ def json_array_contains_string(
 
 
 ir.JSONValue.json_array_contains_string = json_array_contains_string
+ir.JSONValue.array_contains_string = json_array_contains_string
 ir.StringValue.json_array_contains_string = json_array_contains_string
 
 
@@ -111,6 +113,7 @@ def json_array_contains_json(
 
 
 ir.JSONValue.json_array_contains_json = json_array_contains_json
+ir.JSONValue.array_contains_json = json_array_contains_json
 ir.StringValue.json_array_contains_json = json_array_contains_json
 
 
@@ -148,4 +151,5 @@ def json_array_contains(
 
 
 ir.JSONValue.json_array_contains = json_array_contains
+ir.JSONValue.array_contains = json_array_contains
 ir.StringValue.json_array_contains = json_array_contains

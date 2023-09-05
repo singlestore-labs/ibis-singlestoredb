@@ -32,5 +32,6 @@ def json_length(arg: ir.JSONValue | ir.StringValue) -> ir.IntegerValue:
     return JSONLength(arg).to_expr()
 
 
+ir.JSONValue.length = json_length
 ir.JSONValue.json_length = json_length
 ir.StringValue.json_length = json_length

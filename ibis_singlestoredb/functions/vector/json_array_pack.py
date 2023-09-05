@@ -36,6 +36,7 @@ def json_array_pack(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack = json_array_pack
 ir.JSONValue.json_array_pack = json_array_pack
+ir.JSONValue.array_pack = json_array_pack
 
 
 class JSONArrayPackI8(JSONArrayPack):
@@ -61,6 +62,7 @@ def json_array_pack_i8(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack_i8 = json_array_pack_i8
 ir.JSONValue.json_array_pack_i8 = json_array_pack_i8
+ir.JSONValue.array_pack_i8 = json_array_pack_i8
 
 
 class JSONArrayPackI16(JSONArrayPack):
@@ -86,6 +88,7 @@ def json_array_pack_i16(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack_i16 = json_array_pack_i16
 ir.JSONValue.json_array_pack_i16 = json_array_pack_i16
+ir.JSONValue.array_pack_i16 = json_array_pack_i16
 
 
 class JSONArrayPackI32(JSONArrayPack):
@@ -111,6 +114,7 @@ def json_array_pack_i32(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack_i32 = json_array_pack_i32
 ir.JSONValue.json_array_pack_i32 = json_array_pack_i32
+ir.JSONValue.array_pack_i32 = json_array_pack_i32
 
 
 class JSONArrayPackI64(JSONArrayPack):
@@ -136,6 +140,7 @@ def json_array_pack_i64(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack_i64 = json_array_pack_i64
 ir.JSONValue.json_array_pack_i64 = json_array_pack_i64
+ir.JSONValue.array_pack_i64 = json_array_pack_i64
 
 
 class JSONArrayPackF32(JSONArrayPack):
@@ -161,6 +166,7 @@ def json_array_pack_f32(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 ir.StringValue.json_array_pack_f32 = json_array_pack_f32
 ir.JSONValue.json_array_pack_f32 = json_array_pack_f32
+ir.JSONValue.array_pack_f32 = json_array_pack_f32
 
 
 class JSONArrayPackF64(JSONArrayPack):
@@ -185,4 +191,5 @@ def json_array_pack_f64(arg: ir.StringValue | ir.JSONValue) -> ir.BinaryValue:
 
 
 ir.StringValue.json_array_pack_f64 = json_array_pack_f64
+ir.JSONValue.array_pack_f64 = json_array_pack_f64
 ir.JSONValue.json_array_pack_f64 = json_array_pack_f64

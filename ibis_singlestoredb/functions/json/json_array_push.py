@@ -40,6 +40,7 @@ def json_array_push_double(
 
 
 ir.JSONValue.json_array_push_double = json_array_push_double
+ir.JSONValue.array_push_double = json_array_push_double
 ir.StringValue.json_array_push_double = json_array_push_double
 
 
@@ -75,6 +76,7 @@ def json_array_push_string(
 
 
 ir.JSONValue.json_array_push_string = json_array_push_string
+ir.JSONValue.array_push_string = json_array_push_string
 ir.StringValue.json_array_push_string = json_array_push_string
 
 
@@ -110,6 +112,7 @@ def json_array_push_json(
 
 
 ir.JSONValue.json_array_push_json = json_array_push_json
+ir.JSONValue.array_push_json = json_array_push_json
 ir.StringValue.json_array_push_json = json_array_push_json
 
 
@@ -146,5 +149,7 @@ def json_array_push(
     return JSONArrayPushJSON(arg, value).to_expr()
 
 
+ir.JSONValue.append = json_array_push
 ir.JSONValue.json_array_push = json_array_push
+ir.JSONValue.array_push = json_array_push
 ir.StringValue.json_array_push = json_array_push

@@ -42,6 +42,7 @@ def json_set_double(
 
 
 ir.JSONValue.json_set_double = json_set_double
+ir.JSONValue.set_double = json_set_double
 ir.StringValue.json_set_double = json_set_double
 
 
@@ -79,6 +80,7 @@ def json_set_string(
 
 
 ir.JSONValue.json_set_string = json_set_string
+ir.JSONValue.set_string = json_set_string
 ir.StringValue.json_set_string = json_set_string
 
 
@@ -116,6 +118,7 @@ def json_set_json(
 
 
 ir.JSONValue.json_set_json = json_set_json
+ir.JSONValue.set_json = json_set_json
 ir.StringValue.json_set_json = json_set_json
 
 
@@ -154,5 +157,6 @@ def json_set(
     return JSONSetJSON(arg, key_value[:-1], value).to_expr()
 
 
+ir.JSONValue.set = json_set
 ir.JSONValue.json_set = json_set
 ir.StringValue.json_set = json_set

@@ -49,6 +49,7 @@ def json_splice_double(
 
 
 ir.JSONValue.json_splice_double = json_splice_double
+ir.JSONValue.splice_double = json_splice_double
 ir.StringValue.json_splice_double = json_splice_double
 
 
@@ -93,6 +94,7 @@ def json_splice_string(
 
 
 ir.JSONValue.json_splice_string = json_splice_string
+ir.JSONValue.splice_string = json_splice_string
 ir.StringValue.json_splice_string = json_splice_string
 
 
@@ -137,6 +139,7 @@ def json_splice_json(
 
 
 ir.JSONValue.json_splice_json = json_splice_json
+ir.JSONValue.splice_json = json_splice_json
 ir.StringValue.json_splice_json = json_splice_json
 
 
@@ -179,9 +182,13 @@ def json_splice(
     """
     items = tuple(values)
     if values and not isinstance(values[0], ir.Value):
-        items = tuple([json.dumps(x) for x in items])
+        items = tuple([
+            json.dumps(x) if not isinstance(x, ir.Value) else x
+            for x in items
+        ])
     return JSONSpliceJSON(arg, start, length, items).to_expr()
 
 
+ir.JSONValue.splice = json_splice
 ir.JSONValue.json_splice = json_splice
 ir.StringValue.json_splice = json_splice

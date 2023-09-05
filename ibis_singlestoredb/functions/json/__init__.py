@@ -3,6 +3,7 @@ from __future__ import annotations
 from .json_agg import *
 from .json_array_contains import *
 from .json_array_push import *
+from .json_base import *
 from .json_delete_key import *
 from .json_extract import *
 from .json_get_type import *

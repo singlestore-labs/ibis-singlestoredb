@@ -13,7 +13,7 @@ class VectorSum(Reduction):
 
     arg = binary
 
-    output_dtype = dt.binary
+    output_dtype = rlz.dtype_like('arg')
 
 
 def vector_sum(arg: ir.BinaryValue) -> ir.BinaryValue:

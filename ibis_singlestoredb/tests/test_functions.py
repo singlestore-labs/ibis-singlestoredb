@@ -68,56 +68,56 @@ def test_json_array_pack(con: Any) -> None:
     out = tbl.mutate(
         # default (float32)
         text_packed=lambda x: x.text_vector.json_array_pack(),
-        json_packed=lambda x: x.json_vector.json_array_pack(),
+        json_packed=lambda x: x.json_vector.array_pack(),
         text_unpacked=lambda x: x.text_vector.json_array_pack().json_array_unpack(),
-        json_unpacked=lambda x: x.json_vector.json_array_pack().json_array_unpack(),
+        json_unpacked=lambda x: x.json_vector.array_pack().json_array_unpack(),
 
         # float32
         text_float32_packed=lambda x: x.text_vector.json_array_pack_f32(),
-        json_float32_packed=lambda x: x.json_vector.json_array_pack_f32(),
+        json_float32_packed=lambda x: x.json_vector.array_pack_f32(),
         text_float32_unpacked=lambda x: x.text_vector.json_array_pack_f32()\
                                                      .json_array_unpack_f32(),
-        json_float32_unpacked=lambda x: x.json_vector.json_array_pack_f32()\
+        json_float32_unpacked=lambda x: x.json_vector.array_pack_f32()\
                                                      .json_array_unpack_f32(),
 
         # float64
         text_float64_packed=lambda x: x.text_vector.json_array_pack_f64(),
-        json_float64_packed=lambda x: x.json_vector.json_array_pack_f64(),
+        json_float64_packed=lambda x: x.json_vector.array_pack_f64(),
         text_float64_unpacked=lambda x: x.text_vector.json_array_pack_f64()\
                                                      .json_array_unpack_f64(),
-        json_float64_unpacked=lambda x: x.json_vector.json_array_pack_f64()\
+        json_float64_unpacked=lambda x: x.json_vector.array_pack_f64()\
                                                      .json_array_unpack_f64(),
 
         # int8
         text_int8_packed=lambda x: x.text_vector.json_array_pack_i8(),
-        json_int8_packed=lambda x: x.json_vector.json_array_pack_i8(),
+        json_int8_packed=lambda x: x.json_vector.array_pack_i8(),
         text_int8_unpacked=lambda x: x.text_vector.json_array_pack_i8()\
                                                   .json_array_unpack_i8(),
-        json_int8_unpacked=lambda x: x.json_vector.json_array_pack_i8()\
+        json_int8_unpacked=lambda x: x.json_vector.array_pack_i8()\
                                                   .json_array_unpack_i8(),
 
         # int16
         text_int16_packed=lambda x: x.text_vector.json_array_pack_i16(),
-        json_int16_packed=lambda x: x.json_vector.json_array_pack_i16(),
+        json_int16_packed=lambda x: x.json_vector.array_pack_i16(),
         text_int16_unpacked=lambda x: x.text_vector.json_array_pack_i16()\
                                                    .json_array_unpack_i16(),
-        json_int16_unpacked=lambda x: x.json_vector.json_array_pack_i16()\
+        json_int16_unpacked=lambda x: x.json_vector.array_pack_i16()\
                                                    .json_array_unpack_i16(),
 
         # int32
         text_int32_packed=lambda x: x.text_vector.json_array_pack_i32(),
-        json_int32_packed=lambda x: x.json_vector.json_array_pack_i32(),
+        json_int32_packed=lambda x: x.json_vector.array_pack_i32(),
         text_int32_unpacked=lambda x: x.text_vector.json_array_pack_i32()\
                                                    .json_array_unpack_i32(),
-        json_int32_unpacked=lambda x: x.json_vector.json_array_pack_i32()\
+        json_int32_unpacked=lambda x: x.json_vector.array_pack_i32()\
                                                    .json_array_unpack_i32(),
 
         # int64
         text_int64_packed=lambda x: x.text_vector.json_array_pack_i64(),
-        json_int64_packed=lambda x: x.json_vector.json_array_pack_i64(),
+        json_int64_packed=lambda x: x.json_vector.array_pack_i64(),
         text_int64_unpacked=lambda x: x.text_vector.json_array_pack_i64()\
                                                    .json_array_unpack_i64(),
-        json_int64_unpacked=lambda x: x.json_vector.json_array_pack_i64()\
+        json_int64_unpacked=lambda x: x.json_vector.array_pack_i64()\
                                                    .json_array_unpack_i64(),
     ).order_by('id').execute()
 
@@ -168,10 +168,10 @@ def test_json_array_contains(con: Any) -> None:
         text_contains_json=lambda x: x.text_list.json_array_contains_json('true'),
         text_contains=lambda x: x.text_list.json_array_contains(True),
 
-        json_contains_double=lambda x: x.json_vector.json_array_contains_double(0.1),
-        json_contains_string=lambda x: x.json_list.json_array_contains_string('bar'),
-        json_contains_json=lambda x: x.json_list.json_array_contains_json('true'),
-        json_contains=lambda x: x.json_list.json_array_contains(True),
+        json_contains_double=lambda x: x.json_vector.array_contains_double(0.1),
+        json_contains_string=lambda x: x.json_list.array_contains_string('bar'),
+        json_contains_json=lambda x: x.json_list.array_contains_json('true'),
+        json_contains=lambda x: x.json_list.array_contains(True),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -195,29 +195,29 @@ def test_json_array_push(con: Any) -> None:
         text_list_push_double=lambda x: x.text_list.json_array_push_double(5.5),
         text_obj_push_double=lambda x: x.text_obj.json_array_push_double(5.5),
 
-        json_vector_push_double=lambda x: x.json_vector.json_array_push_double(5.5),
-        json_list_push_double=lambda x: x.json_list.json_array_push_double(5.5),
-        json_obj_push_double=lambda x: x.json_obj.json_array_push_double(5.5),
+        json_vector_push_double=lambda x: x.json_vector.array_push_double(5.5),
+        json_list_push_double=lambda x: x.json_list.array_push_double(5.5),
+        json_obj_push_double=lambda x: x.json_obj.array_push_double(5.5),
 
         text_vector_push_string=lambda x: x.text_vector.json_array_push_string('hi'),
         text_list_push_string=lambda x: x.text_list.json_array_push_string('hi'),
         text_obj_push_string=lambda x: x.text_obj.json_array_push_string('hi'),
 
-        json_vector_push_string=lambda x: x.json_vector.json_array_push_string('hi'),
-        json_list_push_string=lambda x: x.json_list.json_array_push_string('hi'),
-        json_obj_push_string=lambda x: x.json_obj.json_array_push_string('hi'),
+        json_vector_push_string=lambda x: x.json_vector.array_push_string('hi'),
+        json_list_push_string=lambda x: x.json_list.array_push_string('hi'),
+        json_obj_push_string=lambda x: x.json_obj.array_push_string('hi'),
 
         text_vector_push_json=lambda x: x.text_vector.json_array_push_json('{"x": true}'),
         text_list_push_json=lambda x: x.text_list.json_array_push_json('{"x": true}'),
         text_obj_push_json=lambda x: x.text_obj.json_array_push_json('{"x": true}'),
 
-        json_vector_push_json=lambda x: x.json_vector.json_array_push_json('{"x": true}'),
-        json_list_push_json=lambda x: x.json_list.json_array_push_json('{"x": true}'),
-        json_obj_push_json=lambda x: x.json_obj.json_array_push_json('{"x": true}'),
+        json_vector_push_json=lambda x: x.json_vector.array_push_json('{"x": true}'),
+        json_list_push_json=lambda x: x.json_list.array_push_json('{"x": true}'),
+        json_obj_push_json=lambda x: x.json_obj.array_push_json('{"x": true}'),
 
-        json_vector_push=lambda x: x.json_vector.json_array_push({'x': True}),
-        json_list_push=lambda x: x.json_list.json_array_push({'x': True}),
-        json_obj_push=lambda x: x.json_obj.json_array_push({'x': True}),
+        json_vector_push=lambda x: x.json_vector.array_push({'x': True}),
+        json_list_push=lambda x: x.json_list.array_push({'x': True}),
+        json_obj_push=lambda x: x.json_obj.array_push({'x': True}),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -258,14 +258,14 @@ def test_json_delete_key(con: Any) -> None:
 
     out = tbl.mutate(
         text_vector_delete_key=lambda x: x.text_vector.json_delete_key(1),
-        json_vector_delete_key=lambda x: x.json_vector.json_delete_key(1),
+        json_vector_delete_key=lambda x: x.json_vector.delete_key(1),
         text_list_delete_key=lambda x: x.text_list.json_delete_key(1),
-        json_list_delete_key=lambda x: x.json_list.json_delete_key(1),
+        json_list_delete_key=lambda x: x.json_list.delete_key(1),
         text_obj_delete_key=lambda x: x.text_obj.json_delete_key('b'),
-        json_obj_delete_key=lambda x: x.json_obj.json_delete_key('b'),
+        json_obj_delete_key=lambda x: x.json_obj.delete_key('b'),
 
         text_obj_delete_nested_key=lambda x: x.text_obj.json_delete_key('c', 'e'),
-        json_obj_delete_nested_key=lambda x: x.json_obj.json_delete_key('c', 'e'),
+        json_obj_delete_nested_key=lambda x: x.json_obj.delete_key('c', 'e'),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -301,7 +301,7 @@ def test_json_delete_key(con: Any) -> None:
     assert out.json_obj_delete_nested_key.tolist() == del_nested_obj_key
 
 
-def test_json_extract_double(con: Any) -> None:
+def test_json_extract(con: Any) -> None:
     tbl = con.table('datatypes')
 
     out = tbl.mutate(
@@ -309,27 +309,46 @@ def test_json_extract_double(con: Any) -> None:
         text_list_extract_double=lambda x: x.text_list.json_extract_double(0),
         text_obj_extract_double=lambda x: x.text_obj.json_extract_double('c', 'd'),
 
-        json_vector_extract_double=lambda x: x.json_vector.json_extract_double(1),
-        json_list_extract_double=lambda x: x.json_list.json_extract_double(0),
-        json_obj_extract_double=lambda x: x.json_obj.json_extract_double('c', 'd'),
+        json_vector_extract_double=lambda x: x.json_vector.extract_double(1),
+        json_list_extract_double=lambda x: x.json_list.extract_double(0),
+        json_obj_extract_double=lambda x: x.json_obj.extract_double('c', 'd'),
 
         text_vector_extract_string=lambda x: x.text_vector.json_extract_string(1),
         text_list_extract_string=lambda x: x.text_list.json_extract_string(1),
         text_obj_extract_string=lambda x: x.text_obj.json_extract_string('b'),
 
-        json_vector_extract_string=lambda x: x.json_vector.json_extract_string(1),
-        json_list_extract_string=lambda x: x.json_list.json_extract_string(1),
-        json_obj_extract_string=lambda x: x.json_obj.json_extract_string('b'),
+        json_vector_extract_string=lambda x: x.json_vector.extract_string(1),
+        json_list_extract_string=lambda x: x.json_list.extract_string(1),
+        json_obj_extract_string=lambda x: x.json_obj.extract_string('b'),
 
         text_vector_extract_json=lambda x: x.text_vector.json_extract_json(1),
         text_list_extract_json=lambda x: x.text_list.json_extract_json(0),
         text_obj_extract_json=lambda x: x.text_obj.json_extract_json('c'),
 
-        json_vector_extract_json=lambda x: x.json_vector.json_extract_json(1),
-        json_list_extract_json=lambda x: x.json_list.json_extract_json(0),
-        json_obj_extract_json=lambda x: x.json_obj.json_extract_json('c'),
-    ).order_by('id').execute()
+        json_vector_extract_json=lambda x: x.json_vector.extract_json(1),
+        json_list_extract_json=lambda x: x.json_list.extract_json(0),
+        json_obj_extract_json=lambda x: x.json_obj.extract_json('c'),
+    ).order_by('id')
 
+    objs = [
+        {'d': 100},
+        {'d': 105, 'e': True},
+        {'d': 111, 'e': 1.234},
+    ]
+
+    json_obj_c = out.json_obj['c'].execute()
+    json_obj_c = json_obj_c[json_obj_c.notnull()].reset_index(drop=True)
+    assert json_obj_c.tolist() == objs
+
+    json_obj_c_d = out.json_obj['c', 'd'].execute()
+    json_obj_c_d = json_obj_c_d[json_obj_c_d.notnull()].reset_index(drop=True)
+    assert json_obj_c_d.tolist() == [100, 105, 111]
+
+    json_vector_1 = out.json_vector[1].execute()
+    json_vector_1 = json_vector_1[json_vector_1.notnull()].reset_index(drop=True)
+    assert json_vector_1.tolist() == [2.5, -3.3, 6.6]
+
+    out = out.execute()
     out = out[out.text_vector.notnull()].reset_index(drop=True)
 
     assert out.text_vector_extract_double.tolist() == [2.5, -3.3, 6.6]
@@ -368,13 +387,13 @@ def test_json_get_type(con: Any) -> None:
 
     out = tbl.mutate(
         text_get_type_double=lambda x: x.text_vector.json_extract_json(1).json_get_type(),
-        json_get_type_double=lambda x: x.json_vector.json_extract_json(1).json_get_type(),
+        json_get_type_double=lambda x: x.json_vector.extract_json(1).json_get_type(),
 
         text_get_type_string=lambda x: x.text_list.json_extract_json(1).json_get_type(),
-        json_get_type_string=lambda x: x.json_list.json_extract_json(1).json_get_type(),
+        json_get_type_string=lambda x: x.json_list.extract_json(1).json_get_type(),
 
         text_get_type_object=lambda x: x.text_obj.json_extract_json('c').json_get_type(),
-        json_get_type_object=lambda x: x.json_obj.json_extract_json('c').json_get_type(),
+        json_get_type_object=lambda x: x.json_obj.extract_json('c').json_get_type(),
 
     ).order_by('id').execute()
 
@@ -395,16 +414,16 @@ def test_json_mask(con: Any) -> None:
 
     out = tbl.mutate(
         text_include_mask=lambda x: x.text_obj.json_include_mask('{"b":1}'),
-        json_include_mask=lambda x: x.json_obj.json_include_mask('{"b":1}'),
+        json_include_mask=lambda x: x.json_obj.include_mask('{"b":1}'),
 
         text_exclude_mask=lambda x: x.text_obj.json_exclude_mask('{"c":1}'),
-        json_exclude_mask=lambda x: x.json_obj.json_exclude_mask('{"c":1}'),
+        json_exclude_mask=lambda x: x.json_obj.exclude_mask('{"c":1}'),
 
         text_include_mask_py=lambda x: x.text_obj.json_include_mask({'b': 1}),
-        json_include_mask_py=lambda x: x.json_obj.json_include_mask({'b': 1}),
+        json_include_mask_py=lambda x: x.json_obj.include_mask({'b': 1}),
 
         text_exclude_mask_py=lambda x: x.text_obj.json_exclude_mask({'c': 1}),
-        json_exclude_mask_py=lambda x: x.json_obj.json_exclude_mask({'c': 1}),
+        json_exclude_mask_py=lambda x: x.json_obj.exclude_mask({'c': 1}),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -443,10 +462,10 @@ def test_json_keys(con: Any) -> None:
 
     out = tbl.mutate(
         text_keys=lambda x: x.text_obj.json_keys(),
-        json_keys=lambda x: x.json_obj.json_keys(),
+        json_keys=lambda x: x.json_obj.keys(),
 
         text_nested_keys=lambda x: x.text_obj.json_keys('c'),
-        json_nested_keys=lambda x: x.json_obj.json_keys('c'),
+        json_nested_keys=lambda x: x.json_obj.keys('c'),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -463,10 +482,10 @@ def test_json_length(con: Any) -> None:
 
     out = tbl.mutate(
         text_length=lambda x: x.text_obj.json_length(),
-        json_length=lambda x: x.json_obj.json_length(),
+        json_length=lambda x: x.json_obj.length(),
 
         text_nested_length=lambda x: x.text_obj.json_extract_json('c').json_length(),
-        json_nested_length=lambda x: x.json_obj.json_extract_json('c').json_length(),
+        json_nested_length=lambda x: x.json_obj.extract_json('c').length(),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -483,7 +502,7 @@ def test_json_pretty(con: Any) -> None:
 
     out = tbl.mutate(
         text_pretty=lambda x: x.text_obj.json_pretty(),
-        json_pretty=lambda x: x.json_obj.json_pretty(),
+        json_pretty=lambda x: x.json_obj.pretty(),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -523,13 +542,13 @@ def test_json_set_double(con: Any) -> None:
 
     out = tbl.mutate(
         text_set_double=lambda x: x.text_obj.json_set_double('f', 3.14),
-        json_set_double=lambda x: x.json_obj.json_set_double('f', 3.14),
+        json_set_double=lambda x: x.json_obj.set_double('f', 3.14),
 
         text_set_array_double=lambda x: x.text_list.json_set_double(1, 3.14),
-        json_set_array_double=lambda x: x.json_list.json_set_double(1, 3.14),
+        json_set_array_double=lambda x: x.json_list.set_double(1, 3.14),
 
         text_set_nested_double=lambda x: x.text_obj.json_set_double('c', 'f', 3.14),
-        json_set_nested_double=lambda x: x.json_obj.json_set_double('c', 'f', 3.14),
+        json_set_nested_double=lambda x: x.json_obj.set_double('c', 'f', 3.14),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -571,13 +590,13 @@ def test_json_set_string(con: Any) -> None:
 
     out = tbl.mutate(
         text_set_string=lambda x: x.text_obj.json_set_string('f', '3.14'),
-        json_set_string=lambda x: x.json_obj.json_set_string('f', '3.14'),
+        json_set_string=lambda x: x.json_obj.set_string('f', '3.14'),
 
         text_set_array_string=lambda x: x.text_list.json_set_string(1, '3.14'),
-        json_set_array_string=lambda x: x.json_list.json_set_string(1, '3.14'),
+        json_set_array_string=lambda x: x.json_list.set_string(1, '3.14'),
 
         text_set_nested_string=lambda x: x.text_obj.json_set_string('c', 'f', '3.14'),
-        json_set_nested_string=lambda x: x.json_obj.json_set_string('c', 'f', '3.14'),
+        json_set_nested_string=lambda x: x.json_obj.set_string('c', 'f', '3.14'),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -619,16 +638,16 @@ def test_json_set_json(con: Any) -> None:
 
     out = tbl.mutate(
         text_set_json=lambda x: x.text_obj.json_set_json('f', 'true'),
-        json_set_json=lambda x: x.json_obj.json_set_json('f', 'true'),
+        json_set_json=lambda x: x.json_obj.set_json('f', 'true'),
 
         text_set_json_obj=lambda x: x.text_obj.json_set_json('f', '{"x":1000}'),
-        json_set_json_obj=lambda x: x.json_obj.json_set_json('f', '{"x":1000}'),
+        json_set_json_obj=lambda x: x.json_obj.set_json('f', '{"x":1000}'),
 
         text_set_array_json=lambda x: x.text_list.json_set_json(1, 'true'),
-        json_set_array_json=lambda x: x.json_list.json_set_json(1, 'true'),
+        json_set_array_json=lambda x: x.json_list.set_json(1, 'true'),
 
         text_set_nested_json=lambda x: x.text_obj.json_set_json('c', 'f', 'true'),
-        json_set_nested_json=lambda x: x.json_obj.json_set_json('c', 'f', 'true'),
+        json_set_nested_json=lambda x: x.json_obj.set_json('c', 'f', 'true'),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -680,16 +699,16 @@ def test_json_set(con: Any) -> None:
 
     out = tbl.mutate(
         text_set=lambda x: x.text_obj.json_set('f', True),
-        json_set=lambda x: x.json_obj.json_set('f', True),
+        json_set=lambda x: x.json_obj.set('f', True),
 
         text_set_obj=lambda x: x.text_obj.json_set('f', {'x': 1000}),
-        json_set_obj=lambda x: x.json_obj.json_set('f', {'x': 1000}),
+        json_set_obj=lambda x: x.json_obj.set('f', {'x': 1000}),
 
         text_set_array=lambda x: x.text_list.json_set(1, True),
-        json_set_array=lambda x: x.json_list.json_set(1, True),
+        json_set_array=lambda x: x.json_list.set(1, True),
 
         text_set_nested=lambda x: x.text_obj.json_set('c', 'f', True),
-        json_set_nested=lambda x: x.json_obj.json_set('c', 'f', True),
+        json_set_nested=lambda x: x.json_obj.set('c', 'f', True),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)
@@ -741,16 +760,16 @@ def test_json_splice(con: Any) -> None:
 
     out = tbl.mutate(
         text_splice_double=lambda x: x.text_list.json_splice_double(1, 3, 3.14),
-        json_splice_double=lambda x: x.json_list.json_splice_double(1, 3, 3.14),
+        json_splice_double=lambda x: x.json_list.splice_double(1, 3, 3.14),
 
         text_splice_string=lambda x: x.text_list.json_splice_string(1, 3, '3.14'),
-        json_splice_string=lambda x: x.json_list.json_splice_string(1, 3, '3.14'),
+        json_splice_string=lambda x: x.json_list.splice_string(1, 3, '3.14'),
 
         text_splice_json=lambda x: x.text_list.json_splice_json(1, 3, '{"x": 3.14}'),
-        json_splice_json=lambda x: x.json_list.json_splice_json(1, 3, '{"x": 3.14}'),
+        json_splice_json=lambda x: x.json_list.splice_json(1, 3, '{"x": 3.14}'),
 
         text_splice=lambda x: x.text_list.json_splice(1, 3, {'x': 3.14}),
-        json_splice=lambda x: x.json_list.json_splice(1, 3, {'x': 3.14}),
+        json_splice=lambda x: x.json_list.splice(1, 3, {'x': 3.14}),
     ).order_by('id').execute()
 
     out = out[out.text_vector.notnull()].reset_index(drop=True)

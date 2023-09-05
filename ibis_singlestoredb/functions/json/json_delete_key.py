@@ -37,5 +37,6 @@ def json_delete_key(
     return JSONDeleteKey(arg, key_path).to_expr()
 
 
+ir.JSONValue.delete_key = json_delete_key
 ir.JSONValue.json_delete_key = json_delete_key
 ir.StringValue.json_delete_key = json_delete_key

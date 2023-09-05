@@ -17,7 +17,7 @@ class VectorSort(Value):
     arg = binary
     direction = rlz.optional(rlz.string)
 
-    output_dtype = dt.binary
+    output_dtype = rlz.dtype_like('arg')
     output_shape = rlz.shape_like('arg')
 
 
@@ -43,6 +43,7 @@ def vector_sort(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSort(arg, direction).to_expr()
 
 
@@ -75,6 +76,7 @@ def vector_sort_i8(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortI8(arg, direction).to_expr()
 
 
@@ -107,6 +109,7 @@ def vector_sort_i16(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortI16(arg, direction).to_expr()
 
 
@@ -139,6 +142,7 @@ def vector_sort_i32(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortI32(arg, direction).to_expr()
 
 
@@ -171,6 +175,7 @@ def vector_sort_i64(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortI64(arg, direction).to_expr()
 
 
@@ -203,6 +208,7 @@ def vector_sort_f32(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortF32(arg, direction).to_expr()
 
 
@@ -235,6 +241,7 @@ def vector_sort_f64(
         direction = 'desc'
     elif direction is ibis.asc:
         direction = 'asc'
+    assert direction in ['asc', 'desc']
     return VectorSortF64(arg, direction).to_expr()
 
 

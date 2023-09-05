@@ -15,7 +15,7 @@ class VectorSubvector(Value):
     start = rlz.integer
     length = rlz.integer
 
-    output_dtype = dt.binary
+    output_dtype = rlz.dtype_like('arg')
     output_shape = rlz.shape_like('arg')
 
 

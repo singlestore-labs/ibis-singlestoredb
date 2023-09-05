@@ -42,6 +42,7 @@ def json_exclude_mask(
     return JSONExcludeMask(arg, mask).to_expr()
 
 
+ir.JSONValue.exclude_mask = json_exclude_mask
 ir.JSONValue.json_exclude_mask = json_exclude_mask
 ir.StringValue.json_exclude_mask = json_exclude_mask
 
@@ -80,5 +81,6 @@ def json_include_mask(
     return JSONIncludeMask(arg, mask).to_expr()
 
 
+ir.JSONValue.include_mask = json_include_mask
 ir.JSONValue.json_include_mask = json_include_mask
 ir.StringValue.json_include_mask = json_include_mask

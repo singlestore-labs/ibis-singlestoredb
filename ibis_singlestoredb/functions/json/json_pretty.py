@@ -33,4 +33,5 @@ def json_pretty(arg: ir.JSONValue | ir.StringValue) -> ir.StringValue:
 
 
 ir.JSONValue.json_pretty = json_pretty
+ir.JSONValue.pretty = json_pretty
 ir.StringValue.json_pretty = json_pretty

@@ -248,6 +248,10 @@ def _json_get_item(t: ExprTranslator, op: ops.JSONGetItem) -> ir.Expr:
     return sa.func.json_extract_json(t.translate(op.arg), t.translate(op.index))
 
 
+def _json_get_path(t: ExprTranslator, op: functions.JSONGetPath) -> ir.Expr:
+    return sa.func.json_extract_json(t.translate(op.arg), *map(t.translate, op.index))
+
+
 def _json_delete_key(
     t: ExprTranslator, op: functions.JSONDeleteKey,
 ) -> ir.Expr:
@@ -517,6 +521,7 @@ operation_registry.update(
         ),
         ops.DayOfWeekName: fixed_arity(lambda arg: sa.func.dayname(arg), 1),
         ops.JSONGetItem: _json_get_item,
+        functions.JSONGetPath: _json_get_path,
         ops.ToJSONArray: lambda t, op: sa.cast(
             sa.case(
                 (
