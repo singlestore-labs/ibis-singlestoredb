@@ -75,49 +75,49 @@ def test_json_array_pack(con: Any) -> None:
         # float32
         text_float32_packed=lambda x: x.text_vector.json_array_pack_f32(),
         json_float32_packed=lambda x: x.json_vector.array_pack_f32(),
-        text_float32_unpacked=lambda x: x.text_vector.json_array_pack_f32()\
+        text_float32_unpacked=lambda x: x.text_vector.json_array_pack_f32()
                                                      .json_array_unpack_f32(),
-        json_float32_unpacked=lambda x: x.json_vector.array_pack_f32()\
+        json_float32_unpacked=lambda x: x.json_vector.array_pack_f32()
                                                      .json_array_unpack_f32(),
 
         # float64
         text_float64_packed=lambda x: x.text_vector.json_array_pack_f64(),
         json_float64_packed=lambda x: x.json_vector.array_pack_f64(),
-        text_float64_unpacked=lambda x: x.text_vector.json_array_pack_f64()\
+        text_float64_unpacked=lambda x: x.text_vector.json_array_pack_f64()
                                                      .json_array_unpack_f64(),
-        json_float64_unpacked=lambda x: x.json_vector.array_pack_f64()\
+        json_float64_unpacked=lambda x: x.json_vector.array_pack_f64()
                                                      .json_array_unpack_f64(),
 
         # int8
         text_int8_packed=lambda x: x.text_vector.json_array_pack_i8(),
         json_int8_packed=lambda x: x.json_vector.array_pack_i8(),
-        text_int8_unpacked=lambda x: x.text_vector.json_array_pack_i8()\
+        text_int8_unpacked=lambda x: x.text_vector.json_array_pack_i8()
                                                   .json_array_unpack_i8(),
-        json_int8_unpacked=lambda x: x.json_vector.array_pack_i8()\
+        json_int8_unpacked=lambda x: x.json_vector.array_pack_i8()
                                                   .json_array_unpack_i8(),
 
         # int16
         text_int16_packed=lambda x: x.text_vector.json_array_pack_i16(),
         json_int16_packed=lambda x: x.json_vector.array_pack_i16(),
-        text_int16_unpacked=lambda x: x.text_vector.json_array_pack_i16()\
+        text_int16_unpacked=lambda x: x.text_vector.json_array_pack_i16()
                                                    .json_array_unpack_i16(),
-        json_int16_unpacked=lambda x: x.json_vector.array_pack_i16()\
+        json_int16_unpacked=lambda x: x.json_vector.array_pack_i16()
                                                    .json_array_unpack_i16(),
 
         # int32
         text_int32_packed=lambda x: x.text_vector.json_array_pack_i32(),
         json_int32_packed=lambda x: x.json_vector.array_pack_i32(),
-        text_int32_unpacked=lambda x: x.text_vector.json_array_pack_i32()\
+        text_int32_unpacked=lambda x: x.text_vector.json_array_pack_i32()
                                                    .json_array_unpack_i32(),
-        json_int32_unpacked=lambda x: x.json_vector.array_pack_i32()\
+        json_int32_unpacked=lambda x: x.json_vector.array_pack_i32()
                                                    .json_array_unpack_i32(),
 
         # int64
         text_int64_packed=lambda x: x.text_vector.json_array_pack_i64(),
         json_int64_packed=lambda x: x.json_vector.array_pack_i64(),
-        text_int64_unpacked=lambda x: x.text_vector.json_array_pack_i64()\
+        text_int64_unpacked=lambda x: x.text_vector.json_array_pack_i64()
                                                    .json_array_unpack_i64(),
-        json_int64_unpacked=lambda x: x.json_vector.array_pack_i64()\
+        json_int64_unpacked=lambda x: x.json_vector.array_pack_i64()
                                                    .json_array_unpack_i64(),
     ).order_by('id').execute()
 
