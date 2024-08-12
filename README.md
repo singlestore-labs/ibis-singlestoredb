@@ -1,4 +1,4 @@
-# <img src="resources/singlestore-logo.png" height="60" valign="middle"/> Ibis backend for SingleStoreDB
+# <img src="https://github.com/singlestore-labs/singlestoredb-python/blob/main/resources/singlestore-logo.png" height="60" valign="middle"/> Ibis backend for SingleStoreDB
 
 **Attention**: The code in this repository is intended for experimental use only and is not fully tested, documented, or supported by SingleStore. Visit the [SingleStore Forums](https://www.singlestore.com/forum/) to ask questions about this repository.
 
