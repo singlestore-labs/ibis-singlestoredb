@@ -31,8 +31,16 @@ on:
 
 jobs:
   publish:
+    permissions:
+      id-token: write   # Required for OIDC trusted publishing
+      actions: read     # Required for actions/download-artifact
+      contents: read    # Required for repository access
 
     runs-on: ubuntu-latest
+
+    environment:
+      name: publish
+      url: https://pypi.org/p/ibis-singlestoredb
 
     services:
       singlestore:
@@ -79,13 +87,9 @@ jobs:
 #       env:
 #         SINGLESTOREDB_URL: "root:root@127.0.0.1:3306"
 
-      - name: Publish PyPI package
+      - name: Publish to PyPI
         if: ${{ github.event_name == 'release' || github.event.inputs.publish_pypi == 'true' }}
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: "${{ secrets.PYPI_TOKEN }}"
-        run: |
-          twine upload dist/*
+        uses: pypa/gh-action-pypi-publish@release/v1
 
 #     - name: Publish Conda package
 #       if: ${{ github.event_name == 'release' || github.event.inputs.publish_anaconda == 'true' }}
